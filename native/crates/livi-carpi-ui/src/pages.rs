@@ -1518,18 +1518,15 @@ mod tests {
     }
 
     #[test]
-    fn faults_scan_on_open_and_clear_with_a_confirm() {
+    fn faults_scan_on_button_and_clear_with_a_confirm() {
         let client = Client::offline("test");
         let mut p = Pages::new(Saved::default(), None);
         let mut s = snap(&[]);
         let now = Instant::now();
         let v = p.view(PageId::Data, &s, now);
         p.press(PageId::Data, &v, &Hit::Pill(2), 2, &client);
-        // Opening the tab scans (offline: it fails at once).
-        assert_eq!(
-            client.snapshot().diag.line(None).as_deref(),
-            Some("Scan failed: not connected")
-        );
+        // Opening the tab doesn't scan; the Scan button does.
+        assert_eq!(client.snapshot().diag.line(None), None);
         let v = p.view(PageId::Data, &s, now);
         assert!(v.pills[2].active);
         assert_eq!(v.rows[0].act, Act::Diag(DiagAction::Scan));

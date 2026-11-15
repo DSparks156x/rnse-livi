@@ -239,12 +239,6 @@ impl Pages {
                     self.confirm = None;
                     self.log.reset();
                     self.trail.clear();
-                    if *t == DataTab::Faults {
-                        let busy = client.snapshot().diag.busy();
-                        if !busy {
-                            client.diag(DiagAction::Scan);
-                        }
-                    }
                 }
                 Some(Moved::Stay)
             }
