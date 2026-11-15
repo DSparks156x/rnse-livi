@@ -25,7 +25,7 @@
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
 
-use livi_carpi_ui::view::{Hit, View};
+use livi_carpi_ui::view::{Hit, Spot, View};
 use livi_carpi_ui::{Client, Moved, PageId, Pages, ToastLevel};
 use livi_core_proto::state::Front;
 use livi_ui_model::carpi::{
@@ -292,6 +292,26 @@ pub fn targets(ui: &AppWindow) -> usize {
         return with(|o| o.tab.as_ref().map_or(0, |(v, _)| v.targets())).unwrap_or(0);
     }
     with(|o| fresh(ui, o).map_or(0, View::targets)).unwrap_or(0)
+}
+
+/// Per focus index of the shown page, its line: pills share the header's, tiles their grid
+/// line's; rows and panel parts each have their own.
+pub fn lines(ui: &AppWindow) -> Vec<u32> {
+    with(|o| {
+        shown_view(ui, o).map(|v| {
+            v.spots
+                .iter()
+                .enumerate()
+                .map(|(at, s)| match s {
+                    Spot::Header => 0,
+                    Spot::Tile(line) => 1 + (*line).max(0) as u32,
+                    Spot::Row(..) | Spot::Panel => 100_000 + at as u32,
+                })
+                .collect()
+        })
+    })
+    .flatten()
+    .unwrap_or_default()
 }
 
 /// Screens deep below the shown page's first one; 0 when it isn't ours.

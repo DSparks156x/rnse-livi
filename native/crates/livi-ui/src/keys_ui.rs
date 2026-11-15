@@ -9,7 +9,7 @@ use livi_core_client::Client;
 use livi_core_proto::input::Input;
 use livi_core_proto::message::Action;
 use livi_ui_model::keys::{
-    Context, Focused, HELD_GAP, Outcome, Zone, bound_to, decide, held_factor, released,
+    Context, Focused, HELD_GAP, Outcome, Zone, bound_to, decide, held_factor, released, turn,
 };
 use livi_ui_model::media::pressed;
 #[cfg(not(target_os = "android"))]
@@ -157,6 +157,37 @@ fn kind(t: Target) -> Focused {
         Target::Text | Target::ColorHex => Focused::Text,
         _ => Focused::Plain,
     }
+}
+
+/// carpi fork: which line of the page each target is on, for the knob's [`turn`]. Neighbours on
+/// one line sit side by side.
+fn lines(ui: &AppWindow, list: &[Target]) -> Vec<u32> {
+    let carpi = if list.iter().any(|t| matches!(t, Target::Carpi(_))) {
+        crate::carpi_ui::lines(ui)
+    } else {
+        Vec::new()
+    };
+    list.iter()
+        .enumerate()
+        .map(|(at, t)| match *t {
+            Target::Back | Target::Apply => 0,
+            Target::DialogButton(_) => 1,
+            Target::NumberMinus | Target::Number | Target::NumberPlus => 2,
+            Target::Text => 3,
+            Target::ColorHex | Target::ColorReset => 4,
+            Target::ColorSlider(w) => 10 + w.max(0) as u32,
+            Target::PageSlider => 20,
+            Target::Source(_) => 30,
+            Target::Artwork | Target::Favorite => 31,
+            Target::Prev | Target::PlayPause | Target::Next => 32,
+            Target::Progress => 33,
+            Target::Station(_) => 34,
+            Target::CalSlider(i) => 1_000 + i.max(0) as u32,
+            Target::Row(i, _) | Target::Tool(i, _) => 100_000 + i as u32,
+            Target::Pick(i) => 200_000 + i as u32,
+            Target::Carpi(i) => carpi.get(i).map_or(1_000_000 + at as u32, |l| 1_000_000 + l),
+        })
+        .collect()
 }
 
 fn first_index(list: &[Target]) -> i32 {
@@ -385,6 +416,13 @@ fn apply(ui: &AppWindow, client: &Client, code: &str, outcome: Outcome) -> bool 
             if !list.is_empty() {
                 f.set_editing(false);
                 f.set_main_index((f.get_main_index() + d).clamp(0, list.len() as i32 - 1));
+            }
+        }
+        Outcome::MainTurn(cw) => {
+            if !list.is_empty() {
+                let lines = lines(ui, &list);
+                f.set_editing(false);
+                f.set_main_index(turn(&lines, f.get_main_index().max(0) as usize, cw) as i32);
             }
         }
         Outcome::Activate => {

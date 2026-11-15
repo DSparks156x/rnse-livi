@@ -59,6 +59,8 @@ pub enum Outcome {
     EnterMain,
     ToNav,
     MainStep(i32),
+    /// carpi fork: the knob in a page, +1 clockwise; [`turn`] picks the focus.
+    MainTurn(i32),
     Activate,
     StartEditing,
     StopEditing,
@@ -98,8 +100,9 @@ pub fn decide(code: &str, ctx: Context, config: &Value) -> Outcome {
     // carpi fork: a knob of its own never leaves a page by turning (as in AA/CarPlay, where the
     // focus stops at the ends); Back leaves. The D-pad still steps out past the first element.
     let turned = knob("knobLeft") || knob("knobRight") || knob("knobUp");
-    // carpi fork: walking a list, the knob goes as in the RNS-E's own menus: clockwise up.
-    // Adjusting a value and paging keep clockwise = more / next, as AA does.
+    // carpi fork: the sidebar column walks as the RNS-E's own menus do: clockwise up. In a page
+    // [`turn`] does the same for lines and goes clockwise right along one. Adjusting a value and
+    // paging keep clockwise = more / next, as AA does.
     let walk = |delta: i32| if turned { -delta } else { delta };
     let back = (!b("back").is_empty() && code == b("back")) || code == "Escape";
     let enter = code == "Enter" || code == "NumpadEnter";
@@ -243,19 +246,40 @@ pub fn decide(code: &str, ctx: Context, config: &Value) -> Outcome {
                     Outcome::Ignore
                 }
             }
-            _ if walk(delta) < 0 && ctx.first && turned => Outcome::Ignore,
-            _ if delta < 0 && ctx.first && !ctx.repeat && !turned => {
+            _ if turned => Outcome::MainTurn(delta),
+            _ if delta < 0 && ctx.first && !ctx.repeat => {
                 if ctx.settings_depth > 0 {
                     Outcome::SettingsBack
                 } else {
                     Outcome::ToNav
                 }
             }
-            _ => Outcome::MainStep(walk(delta)),
+            _ => Outcome::MainStep(delta),
         };
     }
 
     Outcome::Ignore
+}
+
+/// carpi fork: where the knob takes focus from `at`, `cw` +1 clockwise. `lines` holds each focus
+/// index's line; neighbours with the same line sit side by side. Clockwise goes right along a line
+/// and up from line to line, entering a line at its left (counter-clockwise: at its right). It
+/// stops at the ends: turning never leaves the page.
+pub fn turn(lines: &[u32], at: usize, cw: i32) -> usize {
+    let n = lines.len();
+    if n == 0 {
+        return 0;
+    }
+    let at = at.min(n - 1);
+    let starts: Vec<usize> = (0..n)
+        .filter(|&i| i == 0 || lines[i] != lines[i - 1])
+        .collect();
+    let mut order = Vec::with_capacity(n);
+    for (k, &s) in starts.iter().enumerate().rev() {
+        order.extend(s..starts.get(k + 1).copied().unwrap_or(n));
+    }
+    let p = order.iter().position(|&i| i == at).unwrap_or(0) as i32;
+    order[(p + cw).clamp(0, n as i32 - 1) as usize]
 }
 
 pub const HELD_GAP: Duration = Duration::from_millis(600);
@@ -365,7 +389,7 @@ mod tests {
         );
         assert_eq!(
             decide("KeyE", ctx(Zone::Main), &config),
-            Outcome::MainStep(-1)
+            Outcome::MainTurn(1)
         );
         let mut slider = ctx(Zone::Main);
         slider.focused = Focused::Slider;
@@ -379,6 +403,26 @@ mod tests {
         c.projection = true;
         c.streaming = true;
         assert_eq!(decide("KeyE", c, &config), Outcome::ToCore("KeyE".into()));
+    }
+
+    #[test]
+    fn turning_goes_right_along_a_line_and_up_between_lines() {
+        // Back, Apply on the header; rows 2, 3; row 4 with two tools beside it.
+        let lines = [0, 0, 1, 2, 3, 3, 3];
+        // Clockwise from the first row: up to the header, in at its left, then right.
+        assert_eq!(turn(&lines, 2, 1), 0);
+        assert_eq!(turn(&lines, 0, 1), 1);
+        assert_eq!(turn(&lines, 1, 1), 1);
+        // Clockwise from the bottom line's left goes right along it, then up.
+        assert_eq!(turn(&lines, 4, 1), 5);
+        assert_eq!(turn(&lines, 6, 1), 3);
+        assert_eq!(turn(&lines, 3, 1), 2);
+        // Counter-clockwise: left along a line, then down, in at the right.
+        assert_eq!(turn(&lines, 1, -1), 0);
+        assert_eq!(turn(&lines, 0, -1), 2);
+        assert_eq!(turn(&lines, 3, -1), 6);
+        assert_eq!(turn(&lines, 4, -1), 4);
+        assert_eq!(turn(&[], 0, 1), 0);
     }
 
     #[test]
@@ -414,11 +458,11 @@ mod tests {
         config["bindings"]["knobRight"] = json!("PageDown");
         let mut c = ctx(Zone::Main);
         c.first = true;
-        assert_eq!(decide("PageDown", c, &config), Outcome::Ignore);
-        assert_eq!(decide("PageUp", c, &config), Outcome::MainStep(1));
+        assert_eq!(decide("PageDown", c, &config), Outcome::MainTurn(1));
+        assert_eq!(decide("PageUp", c, &config), Outcome::MainTurn(-1));
         assert_eq!(decide("ArrowLeft", c, &config), Outcome::ToNav);
         c.settings_depth = 1;
-        assert_eq!(decide("PageDown", c, &config), Outcome::Ignore);
+        assert_eq!(decide("PageUp", c, &config), Outcome::MainTurn(-1));
         c.settings_depth = 0;
         c.telemetry = true;
         assert_eq!(decide("PageUp", c, &config), Outcome::Ignore);
