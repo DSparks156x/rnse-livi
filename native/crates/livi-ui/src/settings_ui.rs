@@ -224,72 +224,76 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
     s.on_back({
         let (weak, client) = (weak.clone(), client.clone());
         move || {
-            if crate::carpi_ui::settings_back(&weak) {
-                return;
-            }
-            act(&weak, &client, |c, _| match c.browser.as_mut() {
-                Some(b) => {
-                    if !b.up() {
-                        c.browser = None;
-                    }
-                    (Vec::new(), false)
+            crate::keys_ui::tapped(&weak, crate::keys_ui::Tap::Back, || {
+                if crate::carpi_ui::settings_back(&weak) {
+                    return;
                 }
-                None => (Vec::new(), true),
-            })
+                act(&weak, &client, |c, _| match c.browser.as_mut() {
+                    Some(b) => {
+                        if !b.up() {
+                            c.browser = None;
+                        }
+                        (Vec::new(), false)
+                    }
+                    None => (Vec::new(), true),
+                })
+            });
         }
     });
     s.on_press({
         let (weak, client) = (weak.clone(), client.clone());
         move |i| {
-            if crate::carpi_ui::settings_press(&weak, i as usize) {
-                return;
-            }
-            let row = with(|c| c.rows.get(i as usize).filter(|r| r.enabled).cloned()).flatten();
-            let Some(row) = row else { return };
-            if let Some(a) = row.action {
-                client.act(a);
-            }
-            if let Some(change) = row.change {
-                act(&weak, &client, |_, _| (vec![change], false));
-            }
-            match row.local {
-                Some(Local::Browse(wanted)) => {
-                    if crate::system_pick() {
-                        with(|c| c.picking = Some(wanted));
-                    } else {
+            crate::keys_ui::tapped(&weak, crate::keys_ui::Tap::Row(i as usize), || {
+                if crate::carpi_ui::settings_press(&weak, i as usize) {
+                    return;
+                }
+                let row = with(|c| c.rows.get(i as usize).filter(|r| r.enabled).cloned()).flatten();
+                let Some(row) = row else { return };
+                if let Some(a) = row.action {
+                    client.act(a);
+                }
+                if let Some(change) = row.change {
+                    act(&weak, &client, |_, _| (vec![change], false));
+                }
+                match row.local {
+                    Some(Local::Browse(wanted)) => {
+                        if crate::system_pick() {
+                            with(|c| c.picking = Some(wanted));
+                        } else {
+                            act(&weak, &client, |c, _| {
+                                c.browser = Some(Browser::open(wanted));
+                                (Vec::new(), false)
+                            });
+                        }
+                    }
+                    Some(Local::CalibrateTouch(n)) => {
+                        if let Some(ui) = weak.upgrade() {
+                            calibrate_touch::start(&ui, &client, n);
+                        }
+                    }
+                    Some(Local::PickEntry(n)) => {
                         act(&weak, &client, |c, _| {
-                            c.browser = Some(Browser::open(wanted));
-                            (Vec::new(), false)
+                            let Some(Picked::File(wanted, path)) =
+                                c.browser.as_mut().and_then(|b| b.pick(n))
+                            else {
+                                return (Vec::new(), false);
+                            };
+                            let changes = picked(wanted, &path);
+                            if !changes.is_empty() {
+                                c.browser = None;
+                            }
+                            (changes, false)
                         });
                     }
+                    _ => {}
                 }
-                Some(Local::CalibrateTouch(n)) => {
-                    if let Some(ui) = weak.upgrade() {
-                        calibrate_touch::start(&ui, &client, n);
-                    }
+                if row.local == Some(Local::ToProjection)
+                    && let Some(ui) = weak.upgrade()
+                {
+                    ui.set_page(Page::Projection);
+                    ui.invoke_page_chosen(Page::Projection);
                 }
-                Some(Local::PickEntry(n)) => {
-                    act(&weak, &client, |c, _| {
-                        let Some(Picked::File(wanted, path)) =
-                            c.browser.as_mut().and_then(|b| b.pick(n))
-                        else {
-                            return (Vec::new(), false);
-                        };
-                        let changes = picked(wanted, &path);
-                        if !changes.is_empty() {
-                            c.browser = None;
-                        }
-                        (changes, false)
-                    });
-                }
-                _ => {}
-            }
-            if row.local == Some(Local::ToProjection)
-                && let Some(ui) = weak.upgrade()
-            {
-                ui.set_page(Page::Projection);
-                ui.invoke_page_chosen(Page::Projection);
-            }
+            });
         }
     });
     s.on_capture({
@@ -330,19 +334,25 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
         }
     });
     s.on_tool({
-        let client = client.clone();
+        let (weak, client) = (weak.clone(), client.clone());
         move |i, j| {
-            let action = with(|c| {
-                c.rows
-                    .get(i as usize)
-                    .and_then(|r| r.tools.get(j as usize))
-                    .filter(|t| t.enabled)
-                    .map(|t| t.action.clone())
-            })
-            .flatten();
-            if let Some(a) = action {
-                client.act(a);
-            }
+            crate::keys_ui::tapped(
+                &weak,
+                crate::keys_ui::Tap::Tool(i as usize, j as usize),
+                || {
+                    let action = with(|c| {
+                        c.rows
+                            .get(i as usize)
+                            .and_then(|r| r.tools.get(j as usize))
+                            .filter(|t| t.enabled)
+                            .map(|t| t.action.clone())
+                    })
+                    .flatten();
+                    if let Some(a) = action {
+                        client.act(a);
+                    }
+                },
+            );
         }
     });
     s.on_dialog_press({
@@ -380,42 +390,46 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
     s.on_open({
         let (weak, client) = (weak.clone(), client.clone());
         move |i| {
-            if crate::carpi_ui::settings_open(&weak, i as usize) {
-                return;
-            }
-            act(&weak, &client, |c, _| {
-                let i = i as usize;
-                if c.model.opens(&c.stack, i) {
-                    c.stack.push(i);
-                    c.hsl = None;
+            crate::keys_ui::tapped(&weak, crate::keys_ui::Tap::Row(i as usize), || {
+                if crate::carpi_ui::settings_open(&weak, i as usize) {
+                    return;
                 }
-                (Vec::new(), false)
-            })
+                act(&weak, &client, |c, _| {
+                    let i = i as usize;
+                    if c.model.opens(&c.stack, i) {
+                        c.stack.push(i);
+                        c.hsl = None;
+                    }
+                    (Vec::new(), false)
+                })
+            });
         }
     });
     s.on_toggle({
         let (weak, client) = (weak.clone(), client.clone());
         move |i| {
-            if crate::carpi_ui::settings_toggle(&weak, i as usize) {
-                return;
-            }
-            act(&weak, &client, |c, state| {
-                let Some(row) = c.rows.get(i as usize).cloned() else {
-                    return (Vec::new(), false);
-                };
-                if let Some(change) = row.change {
-                    let mut out = vec![change];
-                    out.extend(row.action.map(Change::Act));
-                    return (out, false);
+            crate::keys_ui::tapped(&weak, crate::keys_ui::Tap::Row(i as usize), || {
+                if crate::carpi_ui::settings_toggle(&weak, i as usize) {
+                    return;
                 }
-                (
-                    c.model
-                        .toggle(&c.stack, row.node, state)
-                        .into_iter()
-                        .collect(),
-                    false,
-                )
-            })
+                act(&weak, &client, |c, state| {
+                    let Some(row) = c.rows.get(i as usize).cloned() else {
+                        return (Vec::new(), false);
+                    };
+                    if let Some(change) = row.change {
+                        let mut out = vec![change];
+                        out.extend(row.action.map(Change::Act));
+                        return (out, false);
+                    }
+                    (
+                        c.model
+                            .toggle(&c.stack, row.node, state)
+                            .into_iter()
+                            .collect(),
+                        false,
+                    )
+                })
+            });
         }
     });
     s.on_slide({
@@ -507,14 +521,16 @@ pub fn wire(ui: &AppWindow, client: &Client, lang: &str) {
     s.on_pick({
         let (weak, client) = (weak.clone(), client.clone());
         move |i| {
-            if crate::carpi_ui::settings_pick(&weak, i as usize) {
-                return;
-            }
-            act(&weak, &client, |c, state| {
-                let changes = c.model.pick(&c.stack, i as usize, state, &c.strings);
-                let done = !changes.is_empty();
-                (changes, done)
-            })
+            crate::keys_ui::tapped(&weak, crate::keys_ui::Tap::Pick(i as usize), || {
+                if crate::carpi_ui::settings_pick(&weak, i as usize) {
+                    return;
+                }
+                act(&weak, &client, |c, state| {
+                    let changes = c.model.pick(&c.stack, i as usize, state, &c.strings);
+                    let done = !changes.is_empty();
+                    (changes, done)
+                })
+            });
         }
     });
     s.on_number_set({

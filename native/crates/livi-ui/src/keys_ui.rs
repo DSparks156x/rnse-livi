@@ -56,6 +56,8 @@ thread_local! {
     static TRAIL: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
     static HELD: Cell<Option<(Instant, Instant, f32)>> = const { Cell::new(None) };
     static KEY_REPEAT: Cell<bool> = const { Cell::new(false) };
+    /// carpi fork: a key is being handled; Settings' callbacks it runs aren't taps.
+    static IN_KEY: Cell<bool> = const { Cell::new(false) };
 }
 
 fn settings_targets(s: &SettingsState) -> Vec<Target> {
@@ -505,12 +507,14 @@ pub fn key(ui: &AppWindow, client: &Client, code: &str, down: bool, repeat: bool
         return false;
     }
     KEY_REPEAT.set(repeat);
-    if crate::carpi_ui::key(ui, &config, code) {
-        return true;
-    }
-    let ctx = context(ui, repeat);
-    let outcome = decide(code, ctx, &config);
-    apply(ui, client, code, outcome)
+    IN_KEY.set(true);
+    let used = crate::carpi_ui::key(ui, &config, code) || {
+        let ctx = context(ui, repeat);
+        let outcome = decide(code, ctx, &config);
+        apply(ui, client, code, outcome)
+    };
+    IN_KEY.set(false);
+    used
 }
 
 pub fn touched(ui: &AppWindow) {
@@ -524,6 +528,59 @@ pub fn touched(ui: &AppWindow) {
             ui.invoke_wake_nav();
         }
     });
+}
+
+/// carpi fork: a sidebar tab was tapped. The knob goes into the page it opened, as a push on the
+/// tab would; the projection keeps its keys.
+pub fn tapped_tab(ui: &AppWindow) {
+    if ui.get_page() == Page::Projection {
+        if ui.get_phone() != PhoneState::Streaming {
+            to_nav(ui);
+        }
+        return;
+    }
+    TRAIL.with_borrow_mut(Vec::clear);
+    enter_main(ui);
+}
+
+/// carpi fork: what a tap on LIVI's Settings hit.
+#[derive(Debug, Clone, Copy)]
+pub enum Tap {
+    Back,
+    Row(usize),
+    Tool(usize, usize),
+    Pick(usize),
+}
+
+/// carpi fork: a tap on LIVI's Settings runs `run` with the knob's focus on what it hit, so the
+/// knob carries on from there (or from the top of the screen the tap opened).
+pub fn tapped(weak: &slint::Weak<AppWindow>, tap: Tap, run: impl FnOnce()) {
+    let Some(ui) = weak.upgrade().filter(|_| !IN_KEY.get()) else {
+        return run();
+    };
+    let f = ui.global::<Focus>();
+    let at = targets(&ui).iter().position(|t| match (tap, *t) {
+        (Tap::Back, Target::Back) => true,
+        (Tap::Row(i), Target::Row(r, _)) => i == r,
+        (Tap::Tool(i, j), Target::Tool(r, k)) => i == r && j == k,
+        (Tap::Pick(i), Target::Pick(p)) => i == p,
+        _ => false,
+    });
+    if let Some(at) = at {
+        f.set_editing(false);
+        f.set_main_index(at as i32);
+        f.set_zone(FocusZone::Main);
+    }
+    let from = f.get_main_index();
+    let depth = crate::settings_ui::depth();
+    run();
+    let now = crate::settings_ui::depth();
+    if f.get_zone() == FocusZone::Main && ui.get_page() == Page::Settings && now != depth {
+        if now < depth {
+            TRAIL.with_borrow_mut(|t| t.truncate(t.len().saturating_sub(depth - now - 1)));
+        }
+        settle_after_settings_move(&ui, now > depth, from);
+    }
 }
 
 #[cfg(not(target_os = "android"))]

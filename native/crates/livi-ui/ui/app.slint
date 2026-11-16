@@ -53,6 +53,8 @@ export component AppWindow inherits Window {
     in property <[float]> bands;
 
     callback page-chosen(Page);
+    // carpi fork: a sidebar tab was tapped (after page-chosen).
+    callback tab-tapped(Page);
     callback touch(TouchPhase, float, float);
     callback video-play-pause();
     callback video-seek(float);
@@ -133,6 +135,7 @@ export component AppWindow inherits Window {
             select(p) => {
                 root.page = p;
                 root.page-chosen(p);
+                root.tab-tapped(p);
             }
         }
         Rectangle {
@@ -211,6 +214,7 @@ export component AppWindow inherits Window {
             select(p) => {
                 root.page = p;
                 root.page-chosen(p);
+                root.tab-tapped(p);
             }
         }
     }

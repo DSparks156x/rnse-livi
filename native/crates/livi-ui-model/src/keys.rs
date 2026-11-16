@@ -141,6 +141,12 @@ pub fn decide(code: &str, ctx: Context, config: &Value) -> Outcome {
         return Outcome::Pass;
     }
 
+    // carpi fork: Back on the projection leaves it for the sidebar instead of going to the phone;
+    // Home (Return held) is the phone's way out of an app.
+    if ctx.projection && !in_nav && back && !text_entry {
+        return Outcome::ToNav;
+    }
+
     let mapped = bound_to(config, code);
     let in_projection = ctx.projection && ctx.streaming && !in_nav;
     if let Some(name) = &mapped {
@@ -344,6 +350,16 @@ mod tests {
             decide("ArrowDown", c, &config()),
             Outcome::ToCore("ArrowDown".into())
         );
+    }
+
+    #[test]
+    fn back_on_the_projection_goes_to_the_sidebar() {
+        let mut c = ctx(Zone::None);
+        c.projection = true;
+        c.streaming = true;
+        assert_eq!(decide("Backspace", c, &config()), Outcome::ToNav);
+        assert_eq!(decide("Escape", c, &config()), Outcome::ToNav);
+        assert_eq!(decide("KeyH", c, &config()), Outcome::ToCore("KeyH".into()));
     }
 
     #[test]

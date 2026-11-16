@@ -189,31 +189,31 @@ pub fn wire(ui: &AppWindow) {
     let weak = ui.as_weak();
     st.on_back(move || {
         if let Some(ui) = weak.upgrade() {
-            press(&ui, Hit::Back);
+            tap(&ui, Hit::Back);
         }
     });
     let weak = ui.as_weak();
     st.on_pill(move |i| {
         if let Some(ui) = weak.upgrade() {
-            press(&ui, Hit::Pill(i.max(0) as usize));
+            tap(&ui, Hit::Pill(i.max(0) as usize));
         }
     });
     let weak = ui.as_weak();
     st.on_row(move |i| {
         if let Some(ui) = weak.upgrade() {
-            press(&ui, Hit::Row(i.max(0) as usize));
+            tap(&ui, Hit::Row(i.max(0) as usize));
         }
     });
     let weak = ui.as_weak();
     st.on_cell(move |i| {
         if let Some(ui) = weak.upgrade() {
-            press(&ui, Hit::Cell(i.max(0) as usize));
+            tap(&ui, Hit::Cell(i.max(0) as usize));
         }
     });
     let weak = ui.as_weak();
     st.on_panel(move |i| {
         if let Some(ui) = weak.upgrade() {
-            press(&ui, Hit::Panel(i.max(0) as usize));
+            tap(&ui, Hit::Panel(i.max(0) as usize));
         }
     });
     let weak = ui.as_weak();
@@ -446,6 +446,27 @@ pub fn key(ui: &AppWindow, config: &serde_json::Value, code: &str) -> bool {
             }
         }
     }
+    // Under a tab bar the knob stays in the tab's body; Return, or Up on its top line, goes to
+    // the tabs.
+    if !HOLD.get() {
+        let turn = if !knob_l.is_empty() && code == knob_l {
+            -1
+        } else if !knob_r.is_empty() && code == knob_r {
+            1
+        } else {
+            0
+        };
+        let back = code == "Escape" || code == bind("back");
+        let up = code == or(bind("up"), "ArrowUp");
+        if (turn != 0 || back || up)
+            && let Some(to) = under_tabs(ui, turn, back, up)
+        {
+            if let Some(to) = to {
+                ui.global::<Focus>().set_main_index(to);
+            }
+            return true;
+        }
+    }
     if HOLD.get() {
         let enter = code == "Enter" || code == "NumpadEnter" || code == bind("selectDown");
         let back = code == "Escape" || code == bind("back");
@@ -464,6 +485,30 @@ pub fn key(ui: &AppWindow, config: &serde_json::Value, code: &str) -> bool {
         return true;
     }
     false
+}
+
+/// A knob turn (`turn`, +1 clockwise), Return or Up in the body of a view with tabs. None when
+/// LIVI handles it; Some(None) stops there; Some(Some(at)) focuses `at`, the active tab.
+fn under_tabs(ui: &AppWindow, turn: i32, back: bool, up: bool) -> Option<Option<i32>> {
+    let at = ui.global::<Focus>().get_main_index().max(0) as usize;
+    let lines = lines(ui);
+    with(|o| {
+        let v = shown_view(ui, o)?;
+        let active = v.pills.iter().find(|p| p.active)?.focus_at;
+        let header = |i: usize| v.spots.get(i) == Some(&Spot::Header);
+        if header(at) || at >= v.spots.len() {
+            return None;
+        }
+        if turn != 0 {
+            let to = livi_ui_model::keys::turn(&lines, at, turn);
+            return header(to).then_some(None);
+        }
+        if back || (up && at > 0 && header(at - 1)) {
+            return Some(Some(active));
+        }
+        None
+    })
+    .flatten()
 }
 
 /// While the on-screen keyboard is up it takes every key: the knob turns through the keys,
@@ -605,6 +650,48 @@ fn press(ui: &AppWindow, hit: Hit) {
     act(ui, |o, id, view, from| {
         o.pages.press(id, view, &hit, from, &o.client)
     });
+}
+
+/// A tap: the knob's focus goes to what it hit first, so turning carries on from there. A tab
+/// tapped puts it in the tab's body.
+fn tap(ui: &AppWindow, hit: Hit) {
+    let f = ui.global::<Focus>();
+    let at = with(|o| {
+        let v = shown_view(ui, o)?;
+        let at = match &hit {
+            Hit::Back => return Some(f.get_main_index()),
+            Hit::Pill(i) => v.pills.get(*i)?.focus_at,
+            Hit::Cell(i) => v.cells.get(*i)?.focus_at,
+            Hit::Row(i) => v.rows.get(*i)?.focus_at,
+            Hit::Panel(i) => v.panel_hits.get(*i)?.0,
+        };
+        (at >= 0).then_some(at)
+    })
+    .flatten();
+    if let Some(at) = at {
+        f.set_editing(false);
+        f.set_main_index(at);
+        f.set_zone(FocusZone::Main);
+    }
+    let tab = matches!(hit, Hit::Pill(_));
+    press(ui, hit);
+    if tab && f.get_zone() == FocusZone::Main {
+        let body = with(|o| {
+            let v = shown_view(ui, o)?;
+            let active = v.pills.iter().find(|p| p.active)?.focus_at;
+            (f.get_main_index() == active).then(|| {
+                if v.start >= 0 {
+                    v.start
+                } else {
+                    v.first_body()
+                }
+            })
+        })
+        .flatten();
+        if let Some(body) = body {
+            f.set_main_index(body);
+        }
+    }
 }
 
 /// The D-pad, `d` < 0 left.

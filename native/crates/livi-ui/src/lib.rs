@@ -420,6 +420,14 @@ fn wire(ui: &AppWindow, client: &Client) {
             }
         }
     });
+    ui.on_tab_tapped({
+        let weak = weak.clone();
+        move |_| {
+            if let Some(ui) = weak.upgrade() {
+                keys_ui::tapped_tab(&ui);
+            }
+        }
+    });
     ui.on_touch({
         let c = client.clone();
         move |phase, x, y| send_touch(&c, phase, x, y)
