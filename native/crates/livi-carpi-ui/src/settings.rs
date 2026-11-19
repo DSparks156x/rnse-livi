@@ -99,11 +99,12 @@ pub const DIS_CELLS: usize = 8;
 pub const DIS_PAGES: usize = 6;
 /// Readings page names; others come from the portal.
 pub const DIS_NAMES: &[&str] = &[
-    "Engine",
+    "Readings",
+    "Cruise",
+    "Temps",
     "Boost",
-    "Haldex",
-    "Electrical",
-    "Trip",
+    "Fuel",
+    "Driveline",
     "Custom 1",
     "Custom 2",
     "Custom 3",
@@ -743,15 +744,15 @@ mod tests {
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].name, "Readings");
         assert_eq!(pages[0].cells[0].key, "engine.coolant_c");
-        assert_eq!(page_name_step(&pages, 0, 1).as_deref(), Some("Engine"));
+        assert_eq!(page_name_step(&pages, 0, 1).as_deref(), Some("Cruise"));
         let mut two = pages.clone();
         two.push(DisPageSetting {
-            name: "Engine".into(),
+            name: "Readings".into(),
             cells: vec![],
         });
         two[0].name = "Custom 4".into();
-        assert_eq!(page_name_step(&two, 0, 1).as_deref(), Some("Boost"));
-        assert_eq!(free_name(&two), "Boost");
+        assert_eq!(page_name_step(&two, 0, 1).as_deref(), Some("Cruise"));
+        assert_eq!(free_name(&two), "Cruise");
         assert_eq!(units_for("°C"), ["°C", "°F"]);
         assert!((convert(1.0, "bar", "psi").unwrap() - 14.5).abs() < 0.01);
         assert_eq!(list_step(&[1, 2, 5], 2, 1), 5);

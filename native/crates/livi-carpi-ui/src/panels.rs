@@ -405,30 +405,280 @@ impl Panel {
     }
 }
 
-/// The starting panels: today's groups as numbers, plus Scratch. Better ones come later.
+/// The starting panels, then Scratch. Each notes the diag groups it reads.
 pub fn defaults() -> Vec<Panel> {
-    let mut out: Vec<Panel> = defs::PRESETS
-        .iter()
-        .map(|p| {
-            let grid = Grid::fit(p.values.len());
-            let (cols, _) = grid.size();
-            let widgets = p
-                .values
-                .iter()
-                .take(16)
-                .enumerate()
-                .map(|(i, v)| {
-                    Widget::new(
-                        (i % cols as usize) as u8,
-                        (i / cols as usize) as u8,
-                        Style::Number,
-                        &[v],
+    let w = |c: u8, r: u8, s: Style, v: &[&str]| Widget::new(c, r, s, v);
+    let lab = |mut w: Widget, l: &str| {
+        w.opts.label = Some(l.into());
+        w
+    };
+    let rel = |mut w: Widget| {
+        w.opts.relative = true;
+        w.opts.unit = Some("bar".into());
+        w
+    };
+    let peak = |mut w: Widget, p: Peak| {
+        w.opts.peak = p;
+        w
+    };
+    let dec = |mut w: Widget, d: u8| {
+        w.opts.decimals = Some(d);
+        w
+    };
+    let n = Style::Number;
+    let b = Style::Bar;
+    let mut out = vec![
+        // Bus values only: no diag reads.
+        Panel::new(
+            "Daily",
+            Grid::G4x3,
+            vec![
+                lab(
+                    peak(
+                        rel(w(0, 0, Style::Gauge, &["engine.boost.cluster_mbar"]).size(1, 2)),
+                        Peak::Hold,
+                    ),
+                    "Boost",
+                ),
+                w(1, 0, b, &["engine.coolant_c"]),
+                w(2, 0, b, &["engine.oil_temp_c"]),
+                w(3, 0, n, &["ambient.outside_temp_c"]),
+                w(1, 1, n, &["power.battery_v"]),
+                lab(w(2, 1, b, &["engine.generator_pct"]), "Alternator"),
+                lab(w(3, 1, b, &["engine.fan_pct"]), "Rad fan"),
+                lab(w(0, 2, n, &["fuel.consumption_l100km"]), "Now L/100"),
+                lab(w(1, 2, n, &["trip.short.consumption_l100km"]), "Trip L/100"),
+                w(2, 2, n, &["fuel.range_km"]),
+                lab(w(3, 2, b, &["fuel.level_l"]), "Fuel"),
+            ],
+        ),
+        // Engine 115, 118, 3, 20.
+        Panel::new(
+            "Boost",
+            Grid::G4x3,
+            vec![
+                rel(w(
+                    0,
+                    0,
+                    Style::Graph,
+                    &["engine.boost.actual", "engine.boost.specified"],
+                )
+                .size(3, 1)),
+                lab(w(3, 0, b, &["engine.n75_duty_pct"]), "N75"),
+                w(0, 1, n, &["engine.intake_temp_c"]),
+                lab(w(1, 1, b, &["engine.throttle_deg"]), "Throttle"),
+                w(2, 1, n, &["engine.maf_gs"]),
+                lab(w(3, 1, n, &["engine.ignition_timing_deg"]), "Timing"),
+                lab(
+                    rel(w(
+                        0,
+                        2,
+                        Style::Pair,
+                        &["engine.boost.actual", "engine.boost.specified"],
+                    )),
+                    "Boost dev",
+                ),
+                w(1, 2, n, &["engine.load_pct"]),
+                lab(
+                    w(
+                        2,
+                        2,
+                        Style::Set,
+                        &[
+                            "engine.timing_retard.cyl1_deg",
+                            "engine.timing_retard.cyl2_deg",
+                            "engine.timing_retard.cyl3_deg",
+                            "engine.timing_retard.cyl4_deg",
+                        ],
                     )
-                })
-                .collect();
-            Panel::new(p.name, grid, widgets)
-        })
-        .collect();
+                    .size(2, 1),
+                    "Retard 1-4",
+                ),
+            ],
+        ),
+        // Engine 106, 31, 2, 112.
+        Panel::new(
+            "Fuel",
+            Grid::G4x3,
+            vec![
+                w(
+                    0,
+                    0,
+                    Style::Graph,
+                    &[
+                        "engine.fuel_rail.actual_bar",
+                        "engine.fuel_rail.specified_bar",
+                    ],
+                )
+                .size(3, 1),
+                lab(w(3, 0, b, &["engine.fuel_pump_pct"]), "HPFP"),
+                {
+                    let mut l = w(
+                        0,
+                        1,
+                        Style::Graph,
+                        &["engine.lambda.actual", "engine.lambda.specified"],
+                    )
+                    .size(3, 1);
+                    l.opts.decimals = Some(2);
+                    l
+                },
+                lab(
+                    w(3, 1, n, &["engine.lambda.bank1.enrichment_factor"]),
+                    "Enrich",
+                ),
+                lab(w(0, 2, n, &["engine.injection_ms"]), "Inj"),
+                w(1, 2, n, &["engine.maf_gs"]),
+                lab(w(2, 2, n, &["engine.fuel_temp.calculated_c"]), "Fuel temp"),
+                lab(
+                    w(3, 2, b, &["engine.exhaust_temp.projected_c"]),
+                    "EGT model",
+                ),
+            ],
+        ),
+        // Trans 11, 12, 19 (+ forks 15, 17/18 once).
+        Panel::new(
+            "DSG",
+            Grid::G3x3,
+            vec![
+                w(0, 0, Style::Forks, &FORKS).size(2, 1),
+                lab(
+                    w(
+                        2,
+                        0,
+                        Style::Set,
+                        &["trans.clutch_oil_temp_c", "trans.fluid_temp_c"],
+                    ),
+                    "Clutch · Fluid °C",
+                ),
+                lab(w(0, 1, b, &["trans.k1.pressure_bar"]), "K1"),
+                lab(w(1, 1, b, &["trans.k2.pressure_bar"]), "K2"),
+                lab(
+                    dec(
+                        w(
+                            2,
+                            1,
+                            Style::Set,
+                            &["trans.k1.shaft_rpm", "trans.k2.shaft_rpm"],
+                        ),
+                        0,
+                    ),
+                    "Shaft rpm K1 · K2",
+                ),
+                lab(w(0, 2, n, &["trans.k1.torque_specified_nm"]), "K1 torque"),
+                lab(w(1, 2, n, &["trans.k2.torque_specified_nm"]), "K2 torque"),
+                lab(
+                    w(2, 2, Style::Set, &["trans.k1.valve_a", "trans.k2.valve_a"]),
+                    "Valve A K1 · K2",
+                ),
+            ],
+        ),
+        // Haldex 1, 3 + the controller's bus values.
+        Panel::new(
+            "Haldex",
+            Grid::G4x3,
+            vec![
+                lab(
+                    peak(
+                        w(0, 0, Style::Gauge, &["awd.estimated_torque_nm"]).size(1, 2),
+                        Peak::Hold10s,
+                    ),
+                    "Torque",
+                ),
+                lab(
+                    w(1, 0, Style::Gauge, &["awd.oil_pressure_bar"]).size(1, 2),
+                    "Pressure",
+                ),
+                lab(w(2, 0, n, &["awd.mode"]), "Mode"),
+                lab(w(3, 0, n, &["awd.commanded_nm"]), "Commanded"),
+                lab(w(2, 1, b, &["awd.valve_opening_pct"]), "Valve"),
+                lab(w(3, 1, n, &["awd.slip_nm"]), "Slip"),
+                lab(
+                    w(
+                        0,
+                        2,
+                        Style::Graph,
+                        &["awd.commanded_nm", "awd.estimated_torque_nm"],
+                    )
+                    .size(2, 1),
+                    "Cmd · Est",
+                ),
+                lab(
+                    w(2, 2, Style::Set, &["awd.oil_temp_c", "awd.plate_temp_c"]),
+                    "Oil · Plate °C",
+                ),
+                lab(
+                    w(
+                        3,
+                        2,
+                        Style::Pair,
+                        &["awd.measured_yaw_dps", "awd.model_yaw_dps"],
+                    ),
+                    "Yaw",
+                ),
+            ],
+        ),
+        Panel::new(
+            "Temps",
+            Grid::G3x3,
+            vec![
+                w(0, 0, b, &["engine.coolant_c"]),
+                w(1, 0, b, &["engine.oil_temp_c"]),
+                w(2, 0, b, &["engine.intake_temp_c"]),
+                lab(w(0, 1, b, &["trans.clutch_oil_temp_c"]), "DSG clutch"),
+                lab(w(1, 1, b, &["trans.fluid_temp_c"]), "DSG fluid"),
+                lab(
+                    w(2, 1, b, &["engine.exhaust_temp.projected_c"]),
+                    "EGT model",
+                ),
+                w(0, 2, b, &["awd.oil_temp_c"]),
+                w(1, 2, b, &["awd.plate_temp_c"]),
+                w(2, 2, n, &["ambient.outside_temp_c"]),
+            ],
+        ),
+        // Cluster trip memories, all on the bus.
+        Panel::new(
+            "Trip",
+            Grid::G4x3,
+            vec![
+                lab(
+                    w(0, 0, n, &["trip.short.consumption_l100km"]),
+                    "Short L/100",
+                ),
+                lab(w(1, 0, n, &["trip.long.consumption_l100km"]), "Long L/100"),
+                lab(w(2, 0, n, &["trip.tank.consumption_l100km"]), "Tank L/100"),
+                lab(w(3, 0, n, &["fuel.consumption_l100km"]), "Now L/100"),
+                lab(w(0, 1, n, &["trip.short.distance_km"]), "Short"),
+                lab(w(1, 1, n, &["trip.long.distance_km"]), "Long"),
+                lab(w(2, 1, n, &["trip.tank.distance_km"]), "Tank"),
+                w(3, 1, n, &["fuel.range_km"]),
+                lab(w(0, 2, n, &["trip.short.speed_kmh"]), "Short avg"),
+                lab(w(1, 2, n, &["trip.long.speed_kmh"]), "Long avg"),
+                lab(dec(w(2, 2, n, &["trip.short.time_min"]), 0), "Short time"),
+                lab(w(3, 2, b, &["fuel.level_l"]), "Fuel"),
+            ],
+        ),
+        // Bus values + engine 53.
+        Panel::new(
+            "Electrical",
+            Grid::G4x3,
+            vec![
+                w(0, 0, Style::Graph, &["power.battery_v"]).size(2, 1),
+                lab(w(2, 0, n, &["power.battery_soc_pct"]), "SOC"),
+                lab(w(3, 0, n, &["power.bdm_v"]), "BDM"),
+                lab(w(0, 1, b, &["engine.generator_pct"]), "Alternator"),
+                lab(w(1, 1, n, &["power.generator_target_v"]), "Alt target"),
+                lab(w(2, 1, n, &["engine.terminal30_v"]), "ECU Kl30"),
+                lab(dec(w(3, 1, n, &["power.load_shed_stage"]), 0), "Load shed"),
+                lab(
+                    w(0, 2, Style::Graph, &["engine.generator_pct"]).size(2, 1),
+                    "Alternator",
+                ),
+                lab(w(2, 2, b, &["engine.fan_pct"]), "Rad fan"),
+                w(3, 2, n, &["engine.rpm"]),
+            ],
+        ),
+    ];
     out.push(Panel::scratch());
     out
 }
@@ -495,11 +745,13 @@ impl Panels {
 /// Panel names on the head unit; the portal sets others.
 pub const NAMES: &[&str] = &[
     "Daily",
-    "Engine",
     "Boost",
+    "Fuel",
+    "DSG",
     "Haldex",
-    "Electrical",
+    "Temps",
     "Trip",
+    "Electrical",
     "Custom 1",
     "Custom 2",
     "Custom 3",

@@ -1320,16 +1320,16 @@ mod tests {
     fn a_panel_takes_no_focus_and_the_knob_flips_panels() {
         let client = Client::offline("test");
         let mut p = Pages::new(Saved::default(), None);
-        let s = snap(&[("engine.rpm", Some(Value::Num(900.0)))]);
+        let s = snap(&[("engine.coolant_c", Some(Value::Num(91.0)))]);
         let now = Instant::now();
         let v = p.view(PageId::Data, &s, now);
         assert_eq!(v.layout, Layout::Panel);
-        assert_eq!(v.title, "Engine");
+        assert_eq!(v.title, "Daily");
         let tabs: Vec<&str> = v.pills.iter().map(|p| p.label.as_str()).collect();
         assert_eq!(tabs, ["Panels", "Logs", "Faults"]);
         assert_eq!((v.start, v.flip), (3, 3));
         let d = v.panel.as_ref().unwrap();
-        assert_eq!(d.widgets[0].value, "900");
+        assert_eq!(d.widgets[1].value, "91");
         assert_eq!(d.dots, p.panels().panels.len());
         assert!(p.panels().panels.last().unwrap().scratch);
 
@@ -1341,7 +1341,7 @@ mod tests {
         );
         assert_eq!(p.panels().shown, 1);
         let v = p.view(PageId::Data, &s, now);
-        assert_eq!(v.title, "Drivetrain");
+        assert_eq!(v.title, "Boost");
         // Push opens the menu; back comes to the panel.
         assert_eq!(
             p.press(PageId::Data, &v, &v.hit(v.flip).unwrap(), 3, &client),
@@ -1494,7 +1494,7 @@ mod tests {
             0,
             &client,
         );
-        assert_eq!(p.panels().panel().name, "Daily");
+        assert_eq!(p.panels().panel().name, "Custom 1");
         assert_eq!(p.panels().panel().widgets.len(), 1);
         assert!(p.panels().panels.last().unwrap().widgets.is_empty());
     }
@@ -1760,7 +1760,7 @@ mod tests {
         p.open(PageId::Data, "logs");
         let v = p.view(PageId::Data, &s, now);
         assert!(v.pills[1].active);
-        assert_eq!(v.rows[find(&v, "Log this panel")].value, "Engine");
+        assert_eq!(v.rows[find(&v, "Log this panel")].value, "Daily");
         let at = find(&v, "Profiles");
         assert_eq!(
             p.press(PageId::Data, &v, &Hit::Row(at), 7, &client),

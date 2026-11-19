@@ -15,11 +15,13 @@ use crate::view::{Act, Layout, Row, RowKind, View};
 
 /// Profile names, cycled like the Data page's. Others come from the portal.
 pub const NAMES: &[&str] = &[
-    "Engine",
-    "Boost",
+    "Pull",
+    "Knock",
+    "Fuel",
+    "DSG",
     "Haldex",
+    "Thermal",
     "Electrical",
-    "Trip",
     "Custom 1",
     "Custom 2",
     "Custom 3",
@@ -808,11 +810,11 @@ pub(crate) mod tests {
         let mut st = status();
         assert_eq!(l.apply(&LogAct::Add, Some(&st), &client), Done::Opened);
         assert_eq!(l.screen, LogScreen::Profile);
-        // Engine is the first free name.
+        // Pull is the first free name.
         let (at, p) = l.open.clone().unwrap();
         assert_eq!(
             (at.as_str(), p.name.as_str(), p.rate_hz),
-            ("Engine", "Engine", 10)
+            ("Pull", "Pull", 10)
         );
         apply(
             &mut st,
@@ -824,18 +826,18 @@ pub(crate) mod tests {
 
         // Name skips the taken ones, both ways; carpid hears the rename.
         l.apply(&LogAct::Name(1), Some(&st), &client);
-        assert_eq!(l.open.as_ref().unwrap().1.name, "Electrical");
-        assert_eq!(l.open.as_ref().unwrap().0, "Electrical");
+        assert_eq!(l.open.as_ref().unwrap().1.name, "Knock");
+        assert_eq!(l.open.as_ref().unwrap().0, "Knock");
         apply(
             &mut st,
             &DatalogAction::Save {
                 profile: l.open.as_ref().unwrap().1.clone(),
-                replaces: Some("Engine".into()),
+                replaces: Some("Pull".into()),
             },
         );
         l.apply(&LogAct::Name(-1), Some(&st), &client);
-        assert_eq!(l.open.as_ref().unwrap().1.name, "Engine");
-        assert_eq!(l.open.as_ref().unwrap().0, "Engine");
+        assert_eq!(l.open.as_ref().unwrap().1.name, "Pull");
+        assert_eq!(l.open.as_ref().unwrap().0, "Pull");
 
         // Rate steps and stops at the ends.
         l.apply(&LogAct::Rate(1), Some(&st), &client);
@@ -845,7 +847,7 @@ pub(crate) mod tests {
         assert_eq!(l.open.as_ref().unwrap().1.rate_hz, 1);
 
         let v = profile(&l, &snap(st.clone()));
-        assert_eq!(v.title, "Engine");
+        assert_eq!(v.title, "Pull");
         assert_eq!(v.rows[find(&v, "Rate")].kind, RowKind::Step);
         assert_eq!(v.rows[find(&v, "Channels")].value, "none yet");
         assert!(!v.rows.iter().any(|r| r.label == "Load"));
