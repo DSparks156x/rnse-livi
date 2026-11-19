@@ -97,6 +97,8 @@ pub struct Pages {
     flashing: Option<crate::firmware::Unit>,
     /// Flash Sector armed (upload name), waiting for the second push.
     flashing_sector: Option<String>,
+    /// Reset learned waits for a second push.
+    resetting: bool,
 }
 
 impl Pages {
@@ -140,6 +142,7 @@ impl Pages {
             field: None,
             via_setup: None,
             moving: false,
+            resetting: false,
             flashing: None,
             flashing_sector: None,
         }
@@ -1648,7 +1651,7 @@ mod tests {
         let v = p.view(PageId::Car, &s, now);
         assert!(v.plot.is_none() && !v.custom);
         assert!(v.rows.iter().any(|r| r.value == "Day, by the headlights"));
-        let b = find(&v, "Brightness now");
+        let b = find(&v, "Brightness");
         assert_eq!(v.rows[b].kind, RowKind::Step);
         assert_eq!(
             v.side_act(Some(&Hit::Row(b)), 1),
@@ -1668,6 +1671,32 @@ mod tests {
             p.press(PageId::Car, &v, &Hit::Row(c), 7, &client),
             Moved::Opened
         );
+        // Learned: this source's points, and a reset that asks first.
+        let v = p.view(PageId::Car, &s, now);
+        assert!(v.plot.as_ref().unwrap().manual.is_empty());
+        assert_eq!(v.rows[find(&v, "sensor 9")].value, "30 %");
+        assert!(
+            !v.rows
+                .iter()
+                .any(|r| r.act == Act::Car(CarScreen::Point(0)))
+        );
+        let r = find(&v, "Reset learned");
+        assert_eq!(
+            p.press(PageId::Car, &v, &Hit::Row(r), r as i32, &client),
+            Moved::Stay
+        );
+        let v = p.view(PageId::Car, &s, now);
+        let r = find(&v, "Confirm reset");
+        assert!(v.rows[r].alert);
+        assert_eq!(
+            p.press(PageId::Car, &v, &Hit::Row(r), r as i32, &client),
+            Moved::Stay
+        );
+        let v = p.view(PageId::Car, &s, now);
+        assert!(v.rows.iter().any(|r| r.label == "Reset learned"));
+
+        // Manual: the points to edit.
+        s.settings.as_mut().unwrap().light.curve_mode = carpi_proto::CurveMode::Manual;
         let v = p.view(PageId::Car, &s, now);
         let plot = v.plot.as_ref().unwrap();
         assert_eq!(plot.curve, "M 0 880 L 960 0");

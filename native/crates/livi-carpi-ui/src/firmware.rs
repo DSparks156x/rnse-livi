@@ -28,6 +28,14 @@ impl Identity {
         }
     }
 
+    /// The version, or the build id when there's no version.
+    pub fn short(&self) -> String {
+        match self.version.trim() {
+            "" => self.label(),
+            v => v.into(),
+        }
+    }
+
     fn known(&self) -> bool {
         !self.version.trim().is_empty()
             || self
@@ -380,7 +388,6 @@ pub fn view_dev(
             v.row(info(&line, String::new()).alert(!ok));
         }
     }
-    v.row(info("SDLink protocol", status.protocol.label()));
     v.row(
         Row::new(
             RowKind::Button,
@@ -394,22 +401,26 @@ pub fn view_dev(
     let mut start = -1;
     for (unit, target) in [(Unit::Rnse, &status.rnse), (Unit::Teensy, &status.teensy)] {
         let name = unit.name();
-        v.section(name);
-        v.row(info("Installed", target.installed.label()));
-        if let Some(detail) = target.detail.as_deref().filter(|d| !d.trim().is_empty()) {
-            for line in wrap(detail, WRAP) {
-                v.row(info(&line, String::new()).dimmed(true));
-            }
-        }
-        v.row(info(
-            "Bundled",
-            target
-                .bundled
-                .as_ref()
-                .map_or_else(|| "Unavailable".into(), Identity::label),
-        ));
-        v.row(info("Status", target.update_label().into()));
-        if let Some(why) = &target.blocked {
+        // One row a unit: what's installed and how it stands against the bundle.
+        let installed = match &target.installed {
+            Installed::Reported(id) if id.known() => id.short(),
+            Installed::Legacy => "Legacy".into(),
+            _ => "Unknown".into(),
+        };
+        let state = target.update_label();
+        let value = if state == "Installed unknown" {
+            installed
+        } else {
+            format!("{installed} · {state}")
+        };
+        v.row(info(name, value).alert(target.update_available()));
+        // Why it can't install, only where an install would otherwise be offered.
+        let offered = target.bundled.is_some()
+            && !matches!(
+                target.comparison,
+                Comparison::Same | Comparison::Incompatible
+            );
+        if let Some(why) = target.blocked.as_ref().filter(|_| offered) {
             for line in wrap(&format!("Can't install: {why}"), WRAP) {
                 v.row(info(&line, String::new()).alert(true));
             }
@@ -430,17 +441,11 @@ pub fn view_dev(
             (true, true) => "Confirm install",
             (true, false) => "Confirm replace",
         };
-        let value = if update {
-            format!(
-                "{name} → {}",
-                target
-                    .bundled
-                    .as_ref()
-                    .map_or_else(String::new, Identity::label)
-            )
-        } else {
-            String::new()
-        };
+        // The bundled build, now there's no row of its own for it.
+        let value = target
+            .bundled
+            .as_ref()
+            .map_or_else(String::new, |b| format!("→ {}", b.short()));
         let at = v.row(
             Row::new(RowKind::Button, label, value)
                 .button(if update { "Install" } else { "Replace" })
@@ -584,8 +589,12 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].label, "Install update");
         assert_eq!(rows[0].act, Act::FirmwareInstall(Unit::Rnse));
+        assert_eq!(rows[0].value, "→ 10");
         assert_eq!(rows[1].label, "Replace with bundled");
-        assert!(rows[1].value.is_empty());
+        assert_eq!(rows[1].value, "→ 10");
+        let rnse = v.rows.iter().find(|r| r.label == "RNS-E").unwrap();
+        assert_eq!(rnse.value, "9 · Update available");
+        assert!(rnse.alert);
         assert_eq!(rows[1].act, Act::FirmwareInstall(Unit::Teensy));
 
         // carpid busy (another client's job), or our own job running: no installs, no probe.
@@ -612,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn blocked_reason_and_detail_are_shown() {
+    fn blocked_reason_is_shown_and_detail_is_not() {
         let status = Status {
             rnse: Target {
                 detail: Some("Table 3, formats 1".into()),
@@ -622,7 +631,7 @@ mod tests {
             ..Status::default()
         };
         let v = view(&status, &FirmwareJob::default(), None);
-        assert!(v.rows.iter().any(|r| r.label == "Table 3, formats 1"));
+        assert!(!v.rows.iter().any(|r| r.label == "Table 3, formats 1"));
         let blocked = v
             .rows
             .iter()
@@ -672,9 +681,9 @@ mod tests {
             ..FirmwareJob::default()
         };
         let v = view(&Status::default(), &job, None);
-        // The headline leads with the percent; it comes before the protocol row.
+        // The headline leads with the percent, above everything else.
         let at = |l: &str| v.rows.iter().position(|r| r.label == l).unwrap();
-        assert!(at("RNS-E install · 25 %  (25 of 100)") < at("SDLink protocol"));
+        assert_eq!(at("RNS-E install · 25 %  (25 of 100)"), 0);
         assert!(v.rows.iter().any(|r| r.label == "Writing sector 107"));
         job.job.finished = Some((false, "RNS-E did not reply".into()));
         let v = view(&Status::default(), &job, None);
@@ -779,11 +788,9 @@ mod tests {
     #[test]
     fn empty_status_does_not_claim_legacy_or_an_update() {
         let v = view(&Status::default(), &FirmwareJob::default(), None);
-        assert_eq!(v.rows[0].value, "Unavailable");
-        let installed = v.rows.iter().find(|r| r.label == "Installed").unwrap();
-        assert_eq!(installed.value, "Unknown");
-        let status = v.rows.iter().find(|r| r.label == "Status").unwrap();
-        assert_eq!(status.value, "No bundle");
+        let rnse = v.rows.iter().find(|r| r.label == "RNS-E").unwrap();
+        assert_eq!(rnse.value, "Unknown · No bundle");
+        assert!(!rnse.alert);
         assert!(installs(&v).is_empty());
         assert_eq!(Protocol::Legacy.label(), "Legacy protocol");
         assert_eq!(Protocol::Negotiated(String::new()).label(), "Unavailable");

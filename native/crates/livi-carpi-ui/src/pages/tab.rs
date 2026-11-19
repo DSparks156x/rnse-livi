@@ -49,7 +49,7 @@ pub(super) fn view(pages: &Pages, snap: &Snapshot, now: Instant) -> View {
         S::Media => media(snap),
         S::Accel => accel(snap),
         S::Lighting => lighting(snap),
-        S::Curve => curve(snap),
+        S::Curve => curve(snap, pages.resetting),
         S::Point(i) => curve_point(snap, i),
         S::Night => night(snap),
         S::Controls => controls(snap, pages.keyboard_prefs()),
@@ -218,19 +218,6 @@ fn root(_pages: &Pages, snap: &Snapshot) -> View {
         _ => "",
     };
     v.row(route("Remote access", vnc, S::Remote).icon("LanOutlined"));
-    if let Some(s) = s {
-        v.row(
-            toggle(
-                "Haldex mode switching",
-                s.haldex.enabled,
-                set(SettingsPatch {
-                    haldex_enabled: Some(!s.haldex.enabled),
-                    ..Default::default()
-                }),
-            )
-            .tag("Restores the last confirmed mode at startup"),
-        );
-    }
     v.row(route("Advanced", "", S::Advanced).icon("TuneOutlined"));
     v.finish()
 }
@@ -978,15 +965,21 @@ fn lighting(snap: &Snapshot) -> View {
                 false,
             ),
         ));
+        use carpi_proto::CurveMode;
+        // Up/down teaches the learned curve at the ambient now. It needs an ambient reading;
+        // without one the row stays, saying why.
         let nudge = |delta_pct| Act::Light(LightAction::Nudge { delta_pct });
-        if snap.connected && l.auto_brightness && pct.is_some() {
+        let learning = l.auto_brightness && l.curve_mode == CurveMode::Learned;
+        if learning && num(snap, "light.ambient").is_some() {
             v.row(
-                Row::new(RowKind::Step, "Brightness now", panel.clone())
+                Row::new(RowKind::Step, "Brightness", panel.clone())
                     .act(nudge(STEP_PCT as i8))
                     .side(nudge(-(STEP_PCT as i8)), nudge(STEP_PCT as i8)),
             );
-        } else if !l.auto_brightness {
-            v.row(info("Brightness now", panel));
+        } else if learning {
+            v.row(info("Brightness", "No sensor").dimmed(true));
+        } else {
+            v.row(info("Brightness", panel));
         }
         if !l.auto_brightness {
             v.row(route("Night mode", night_now(snap), S::Night));
@@ -1013,7 +1006,6 @@ fn lighting(snap: &Snapshot) -> View {
                 source(light::next_source(l.ambient_source)),
             ),
         );
-        use carpi_proto::CurveMode;
         const MODES: [(CurveMode, &str); 2] = [
             (CurveMode::Learned, "Learned"),
             (CurveMode::Manual, "Manual"),
@@ -1027,18 +1019,6 @@ fn lighting(snap: &Snapshot) -> View {
                 false,
             )
         }));
-        let learned = l
-            .learned
-            .iter()
-            .filter(|p| p.source == l.ambient_source)
-            .count();
-        if snap.connected && learned > 0 {
-            v.row(
-                Row::new(RowKind::Button, "Learned points", learned.to_string())
-                    .button("Reset")
-                    .act(Act::Light(LightAction::ResetLearned { source: None })),
-            );
-        }
         v.row(toggle(
             "Scroll trim",
             l.scroll_trim,
@@ -1068,14 +1048,15 @@ fn night_now(snap: &Snapshot) -> String {
 }
 
 /// The plot, with the manual curve's points to edit.
-fn curve(snap: &Snapshot) -> View {
+fn curve(snap: &Snapshot, resetting: bool) -> View {
     let settings = snap.settings.as_ref().map(|s| &s.light);
     let ambient = num(snap, "light.ambient");
     let pct = num(snap, "light.panel_pct");
     let c = text_of(snap, super::CURVE).and_then(light::parse);
     let mut v = View::new(Layout::List, "Brightness curve", true).note(settings_note(snap));
     v.custom = true;
-    v.plot = Some(light::plot(c.as_ref(), settings, ambient, pct, true));
+    let manual = settings.is_none_or(|l| l.curve_mode == carpi_proto::CurveMode::Manual);
+    v.plot = Some(light::plot(c.as_ref(), settings, ambient, pct, manual));
     v.row(info(
         "Ambient",
         ambient.map_or_else(|| NONE.to_string(), ambient_text),
@@ -1084,6 +1065,44 @@ fn curve(snap: &Snapshot) -> View {
         waiting(&mut v);
         return v.finish();
     };
+    if l.curve_mode == carpi_proto::CurveMode::Learned {
+        v.section("Learned");
+        let mut points: Vec<_> = l
+            .learned
+            .iter()
+            .filter(|p| p.source == l.ambient_source)
+            .collect();
+        points.sort_by(|a, b| a.ambient.total_cmp(&b.ambient));
+        if points.is_empty() {
+            v.row(info("No points", "").dimmed(true));
+        }
+        for p in &points {
+            v.row(info(
+                format!("sensor {:.0}", light::raw(p.ambient)),
+                format!("{} %", p.pct),
+            ));
+        }
+        if !points.is_empty() {
+            let at = v.row(
+                Row::new(
+                    RowKind::Button,
+                    if resetting {
+                        "Confirm reset"
+                    } else {
+                        "Reset learned"
+                    },
+                    "",
+                )
+                .button("Reset")
+                .act(Act::Light(LightAction::ResetLearned { source: None }))
+                .alert(resetting),
+            );
+            if resetting {
+                v.start = at;
+            }
+        }
+        return v.finish();
+    }
     for (i, p) in l.manual_curve.iter().enumerate() {
         let at = v.row(route(
             format!("Point {}", i + 1),
@@ -2079,6 +2098,14 @@ fn advanced(pages: &Pages, snap: &Snapshot) -> View {
                 ..Default::default()
             }),
         ));
+        v.row(toggle(
+            "Haldex mode switching",
+            s.haldex.enabled,
+            set(SettingsPatch {
+                haldex_enabled: Some(!s.haldex.enabled),
+                ..Default::default()
+            }),
+        ));
     })
 }
 
@@ -2102,6 +2129,16 @@ impl Pages {
         if !matches!(act, Act::FlashSector(_)) {
             self.flashing_sector = None;
         }
+        // Reset learned: the first push asks, the second goes on to carpid.
+        if matches!(act, Act::Light(LightAction::ResetLearned { .. })) {
+            if !self.resetting {
+                self.resetting = true;
+                return Some(Moved::Stay);
+            }
+            self.resetting = false;
+            return None;
+        }
+        self.resetting = false;
         // A screen Setup opens comes back to Setup.
         if let (S::Setup, Act::Car(to)) = (self.car, act) {
             self.via_setup = Some(*to);
@@ -2406,14 +2443,20 @@ mod tests {
     use crate::view::Hit;
 
     #[test]
-    fn haldex_toggle_is_opt_in_on_car_integration() {
+    fn haldex_toggle_is_opt_in_under_advanced() {
         let mut s = snap();
         let p = Pages::new(Saved::default(), None);
-        let v = root(&p, &s);
+        assert!(
+            !root(&p, &s)
+                .rows
+                .iter()
+                .any(|r| r.label == "Haldex mode switching")
+        );
+        let v = advanced(&p, &s);
         let row = &v.rows[find(&v, "Haldex mode switching")];
         assert_eq!(patch_of(Some(&row.act)).haldex_enabled, Some(true));
         s.settings.as_mut().unwrap().haldex.enabled = true;
-        let v = root(&p, &s);
+        let v = advanced(&p, &s);
         assert_eq!(
             patch_of(Some(&v.rows[find(&v, "Haldex mode switching")].act)).haldex_enabled,
             Some(false)
