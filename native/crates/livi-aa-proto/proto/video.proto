@@ -170,7 +170,7 @@ message UiConfig {
   optional DisplayInsets content_insets = 2;
   optional DisplayInsets stable_content_insets = 3;
   optional UiTheme ui_theme = 4;
-  repeated UiElement head_unit_ui_elements = 5;
+  repeated UiElement head_unit_ui_elements = 5 [packed = true];
   repeated UiAction supported_actions = 6;
   repeated DisplayCutout cutouts = 7;
   optional BlendedUiConfig blended_ui_config = 8;

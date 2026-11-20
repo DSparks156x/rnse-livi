@@ -59,6 +59,7 @@ const NEEDS_RESTART: &[&str] = &[
     "carplayIcon180",
     "carplayIcon256",
     "carPlayMfiFiles",
+    "androidAuto",
 ];
 
 pub fn sessions_open(state: &Value) -> bool {

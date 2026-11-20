@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Additional terms: see NOTICE
 
-use livi_core_proto::config::{CarType, Config, HandDriveType};
+use livi_core_proto::config::{AaKeySet, AaTouch, AndroidAuto, CarType, Config, HandDriveType};
 use livi_wifi::{OnAir, Security};
 
 use crate::wire::round_half_up;
@@ -46,6 +46,7 @@ pub struct AaConfig {
     pub disable_audio_output: bool,
     pub mic_device: String,
     pub telephony_audio: bool,
+    pub android_auto: AndroidAuto,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -290,6 +291,55 @@ pub fn from_livi(
         disable_audio_output: cfg.disable_audio_output,
         mic_device: cfg.audio_input_device.clone().unwrap_or_default(),
         telephony_audio: std::env::var("LIVI_AA_TELEPHONY").is_ok_and(|v| v == "1"),
+        android_auto: android_auto_env(cfg.android_auto.clone(), |k| std::env::var(k).ok()),
+    }
+}
+
+fn numbers(v: &str) -> Vec<u32> {
+    v.split(',').filter_map(|n| n.trim().parse().ok()).collect()
+}
+
+/// Env overrides on top of the config's `androidAuto`:
+/// LIVI_AA_KEYS = touch | rotary | dpad | comma-separated keycodes,
+/// LIVI_AA_TOUCHSCREEN = auto | 0 | 1, LIVI_AA_TOUCHPAD = 0 | 1 (a UI-navigation touchpad),
+/// LIVI_AA_UI_ELEMENTS = comma-separated UiElement numbers (1 clock .. 5 turn data).
+pub fn android_auto_env(mut aa: AndroidAuto, var: impl Fn(&str) -> Option<String>) -> AndroidAuto {
+    if let Some(v) = var("LIVI_AA_KEYS") {
+        match AaKeySet::from_name(&v) {
+            Some(set) => aa.keys = set,
+            None => {
+                aa.keys = AaKeySet::Custom;
+                aa.custom_keys = numbers(&v);
+            }
+        }
+    }
+    if let Some(v) = var("LIVI_AA_TOUCHSCREEN") {
+        aa.touchscreen = match v.trim() {
+            "1" => AaTouch::On,
+            "0" => AaTouch::Off,
+            _ => AaTouch::Auto,
+        };
+    }
+    if let Some(v) = var("LIVI_AA_TOUCHPAD") {
+        aa.touchpad.enabled = v.trim() == "1";
+        aa.touchpad.ui_navigation = aa.touchpad.enabled;
+    }
+    if let Some(v) = var("LIVI_AA_UI_ELEMENTS") {
+        let on = numbers(&v);
+        let e = &mut aa.ui_elements;
+        e.clock = on.contains(&1);
+        e.battery_level = on.contains(&2);
+        e.phone_signal = on.contains(&3);
+        e.native_ui_affordance = on.contains(&4);
+        e.navigation_turn_data = on.contains(&5);
+    }
+    aa
+}
+
+/// `auto` takes whether the main display has a touch device; unknown leaves it as is.
+pub fn resolve_touch(aa: &mut AndroidAuto, attached: Option<bool>) {
+    if let (AaTouch::Auto, Some(on)) = (aa.touchscreen, attached) {
+        aa.touchscreen = if on { AaTouch::On } else { AaTouch::Off };
     }
 }
 
@@ -362,6 +412,50 @@ impl Geometry {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn android_auto_env_overrides() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        let base = AndroidAuto::default();
+        assert_eq!(android_auto_env(base.clone(), env(&[])), base);
+        let aa = android_auto_env(
+            base.clone(),
+            env(&[("LIVI_AA_KEYS", "rotary"), ("LIVI_AA_TOUCHSCREEN", "0")]),
+        );
+        assert_eq!(aa, AndroidAuto::rotary());
+        let aa = android_auto_env(
+            base.clone(),
+            env(&[
+                ("LIVI_AA_KEYS", "3, 4,65536"),
+                ("LIVI_AA_TOUCHPAD", "1"),
+                ("LIVI_AA_UI_ELEMENTS", "1,5"),
+            ]),
+        );
+        assert_eq!(aa.keys, AaKeySet::Custom);
+        assert_eq!(aa.custom_keys, [3, 4, 65536]);
+        assert_eq!(aa.touchscreen, AaTouch::Auto);
+        let mut auto = AndroidAuto::default();
+        resolve_touch(&mut auto, None);
+        assert_eq!(auto.touchscreen, AaTouch::Auto);
+        resolve_touch(&mut auto, Some(false));
+        assert_eq!(auto.touchscreen, AaTouch::Off);
+        let mut forced = AndroidAuto {
+            touchscreen: AaTouch::On,
+            ..AndroidAuto::default()
+        };
+        resolve_touch(&mut forced, Some(false));
+        assert_eq!(forced.touchscreen, AaTouch::On);
+        assert!(aa.touchpad.enabled && aa.touchpad.ui_navigation);
+        assert!(aa.ui_elements.clock && aa.ui_elements.navigation_turn_data);
+        assert!(!aa.ui_elements.battery_level);
+    }
 
     #[test]
     fn tiers_and_densities() {

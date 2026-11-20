@@ -141,6 +141,7 @@ fn ts_config(v: &Json) -> AaConfig {
         disable_audio_output: b("disableAudioOutput"),
         mic_device: String::new(),
         telephony_audio: false,
+        android_auto: Default::default(),
     }
 }
 

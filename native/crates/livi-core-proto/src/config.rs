@@ -197,6 +197,117 @@ pub struct Config {
     pub dismissed_packages: Vec<String>,
 
     pub bindings: KeyBindings,
+
+    #[serde(default)]
+    pub android_auto: AndroidAuto,
+}
+
+/// What the head unit declares to Android Auto at service discovery. The phone fixes its UI
+/// for the session from this: a touchscreen makes it touch-first, a UI-navigation touchpad
+/// turns rotary off, ROTARY_CONTROLLER / the D-pad keys turn focus navigation on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AndroidAuto {
+    pub touchscreen: AaTouch,
+    /// Touchscreen.type (1..=3); 0 leaves it out.
+    pub touchscreen_type: u8,
+    pub touchpad: AaTouchpad,
+    pub keys: AaKeySet,
+    /// The keycodes declared when `keys` is `custom`.
+    pub custom_keys: Vec<u32>,
+    pub ui_elements: AaUiElements,
+}
+
+impl Default for AndroidAuto {
+    fn default() -> Self {
+        Self {
+            touchscreen: AaTouch::Auto,
+            touchscreen_type: 0,
+            touchpad: AaTouchpad::default(),
+            keys: AaKeySet::Touch,
+            custom_keys: Vec::new(),
+            ui_elements: AaUiElements::default(),
+        }
+    }
+}
+
+impl AndroidAuto {
+    /// The RNS-E: a knob, no touchscreen.
+    pub fn rotary() -> Self {
+        Self {
+            touchscreen: AaTouch::Off,
+            keys: AaKeySet::Rotary,
+            ..Self::default()
+        }
+    }
+}
+
+/// `auto` follows a touch device on the main display; on and off force it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AaTouch {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl AaTouch {
+    /// Auto with nothing known keeps the touchscreen, as before.
+    pub fn declared(self) -> bool {
+        self != Self::Off
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AaTouchpad {
+    pub enabled: bool,
+    /// Pixels; 0 takes the touchscreen size of the main display.
+    pub width: u32,
+    pub height: u32,
+    pub ui_navigation: bool,
+    pub ui_absolute: bool,
+    pub tap_as_select: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<i32>,
+    /// 0 leaves it out.
+    pub width_mm: u32,
+    pub height_mm: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AaKeySet {
+    #[default]
+    Touch,
+    Rotary,
+    Dpad,
+    Custom,
+}
+
+impl AaKeySet {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "touch" => Some(Self::Touch),
+            "rotary" => Some(Self::Rotary),
+            "dpad" => Some(Self::Dpad),
+            "custom" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+}
+
+/// UiConfig.head_unit_ui_elements: what the head unit draws itself, so AA leaves it out.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AaUiElements {
+    pub clock: bool,
+    pub battery_level: bool,
+    pub phone_signal: bool,
+    pub native_ui_affordance: bool,
+    /// NAVIGATION_TURN_DATA_AVAILABLE: AA hides its own turn card.
+    pub navigation_turn_data: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -576,6 +687,7 @@ pub fn defaults() -> Config {
         update_nightly: false,
         dismissed_packages: Vec::new(),
         bindings: default_bindings(),
+        android_auto: AndroidAuto::default(),
     }
 }
 
@@ -639,5 +751,17 @@ mod tests {
             Some(EvConnectorType::Combo2)
         );
         assert_eq!(EvConnectorType::from_name("Type 2"), None);
+    }
+
+    #[test]
+    fn android_auto_reads_partial_and_missing() {
+        let aa: AndroidAuto =
+            serde_json::from_str(r#"{"keys":"rotary","touchscreen":"off"}"#).unwrap();
+        assert_eq!(aa, AndroidAuto::rotary());
+        let aa: AndroidAuto = serde_json::from_str("{}").unwrap();
+        assert_eq!(aa, AndroidAuto::default());
+        assert_eq!(aa.touchscreen, AaTouch::Auto);
+        assert!(aa.touchscreen.declared());
+        assert_eq!(AaKeySet::from_name(" DPad "), Some(AaKeySet::Dpad));
     }
 }

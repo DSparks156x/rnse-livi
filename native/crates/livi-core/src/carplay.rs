@@ -547,12 +547,28 @@ pub fn offers_hevc(probe: &Probe) -> bool {
     h265.hw || (h265.sw && !h264.hw)
 }
 
+/// Whether the main display has a touch device; None before any display is known.
+fn main_touch(state: &State) -> Option<bool> {
+    let displays = &state.system.displays;
+    let chosen = &state.config.display_connector.main;
+    let main = if chosen.is_empty() {
+        displays
+            .iter()
+            .find(|d| d.screen == Some(Screen::Main))
+            .or_else(|| displays.first())
+    } else {
+        displays.iter().find(|d| &d.connector == chosen)
+    };
+    main.map(|d| !d.touch.is_empty())
+}
+
 fn aa_config(
     cfg: &Config,
     panels: &HashMap<String, Panel>,
     screen: Option<&Panel>,
     codecs: Codecs,
     addresses: &Addresses,
+    touch: Option<bool>,
 ) -> AaConfig {
     let widths = ScreenWidths {
         main: main_mm(cfg, panels, screen).map(|m| m.0 as f64),
@@ -564,13 +580,15 @@ fn aa_config(
         wifi_bssid: known(&addresses.wifi_bssid),
         access_point: addresses.access_point.clone(),
     };
-    livi_aa_stack::config::from_livi(
+    let mut aa = livi_aa_stack::config::from_livi(
         cfg,
         widths,
         codecs,
         cfg.appearance_mode.night_mode(),
         &addresses,
-    )
+    );
+    livi_aa_stack::config::resolve_touch(&mut aa.android_auto, touch);
+    aa
 }
 
 pub struct ConfigSource {
@@ -652,9 +670,9 @@ impl ConfigSource {
             },
             access_point: None,
         };
-        let (cfg, cluster) = {
+        let (cfg, cluster, touch) = {
             let s = state.borrow();
-            (s.config.clone(), s.cluster.theme.clone())
+            (s.config.clone(), s.cluster.theme.clone(), main_touch(&s))
         };
         let screen = host::screen_panel();
         let first = with_images(
@@ -668,6 +686,7 @@ impl ConfigSource {
             screen.as_ref(),
             Codecs::default(),
             &addresses,
+            touch,
         ));
         let source = Arc::new(Self {
             tx,
@@ -685,12 +704,13 @@ impl ConfigSource {
     }
 
     pub fn refresh(&self) {
-        let (cfg, cluster, dongle_up) = {
+        let (cfg, cluster, dongle_up, touch) = {
             let s = self.state.borrow();
             (
                 s.config.clone(),
                 s.cluster.theme.clone(),
                 s.system.dongle.is_some(),
+                main_touch(&s),
             )
         };
         let reachable = |name: &str| dongle_up || name != livi_link_host::link::CHOICE;
@@ -760,6 +780,7 @@ impl ConfigSource {
             self.screen.as_ref(),
             codecs,
             &addresses,
+            touch,
         );
         self.aa.send_if_modified(|cur| {
             let changed = *cur != aa;
@@ -793,6 +814,7 @@ impl ConfigSource {
                         sys.wifi_interfaces.clone(),
                         sys.bt_adapters.clone(),
                         s.cluster.theme.id.clone(),
+                        main_touch(&s),
                     )
                 };
                 if panels_moved || seen.as_ref() != Some(&now) {
@@ -821,6 +843,26 @@ mod tests {
     use livi_core_proto::theme::livi_theme;
 
     use super::*;
+
+    #[test]
+    fn main_touch_reads_the_main_display() {
+        use livi_core_proto::state::Display;
+        let mut s = State::default();
+        assert_eq!(main_touch(&s), None);
+        let display = |connector: &str, screen, touch: &[&str]| Display {
+            connector: connector.into(),
+            screen,
+            touch: touch.iter().map(|t| t.to_string()).collect(),
+            ..Default::default()
+        };
+        s.system.displays = vec![
+            display("HDMI-A-2", Some(Screen::Cluster), &["ft5x06"]),
+            display("HDMI-A-1", Some(Screen::Main), &[]),
+        ];
+        assert_eq!(main_touch(&s), Some(false));
+        s.config.display_connector.main = "HDMI-A-2".into();
+        assert_eq!(main_touch(&s), Some(true));
+    }
 
     fn panels() -> HashMap<String, Panel> {
         HashMap::from([(

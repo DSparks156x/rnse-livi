@@ -7,14 +7,16 @@ use livi_aa_proto::{
     DisplayInsets, DisplayType, InputSourceService, Keycode, MediaCodecType,
     MediaPlaybackStatusService, MediaSinkService, MediaSourceService, NavigationClusterType,
     NavigationImageOptions, NavigationStatusService, PhoneStatusService, SensorSourceService,
-    SensorType, Service, ServiceDiscoveryResponse, SupportedSensor, Touchscreen, UiConfig,
-    VideoCodecResolution, VideoConfiguration, VideoFrameRate, WifiProjectionService,
+    SensorType, Service, ServiceDiscoveryResponse, SupportedSensor, Touchpad, Touchscreen,
+    UiConfig, UiElement, VideoCodecResolution, VideoConfiguration, VideoFrameRate,
+    WifiProjectionService,
 };
 
 use crate::codec::encode;
 use crate::config::{AaConfig, Geometry, Insets};
 use crate::log::{debug, hex};
 use livi_aa_proto::consts::ch;
+use livi_core_proto::config::{AaKeySet, AndroidAuto};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VideoCodec {
@@ -71,7 +73,8 @@ pub struct Discovery {
 
 const LOCATION_CHARACTERIZATION: u32 = 256 | 4 | 2 | 8 | 64;
 
-const KEYCODES: [Keycode; 50] = [
+/// `touch`: everything LIVI can send, next to a touchscreen.
+const TOUCH_KEYS: [Keycode; 50] = [
     Keycode::Home,
     Keycode::Back,
     Keycode::Call,
@@ -123,6 +126,108 @@ const KEYCODES: [Keycode; 50] = [
     Keycode::Radio,
     Keycode::Tel,
 ];
+
+/// `rotary`: a knob with push, a D-pad around it, back/home and the hard keys a car has.
+const ROTARY_KEYS: [Keycode; 25] = [
+    Keycode::RotaryController,
+    Keycode::DpadUp,
+    Keycode::DpadDown,
+    Keycode::DpadLeft,
+    Keycode::DpadRight,
+    Keycode::DpadCenter,
+    Keycode::Back,
+    Keycode::Home,
+    Keycode::Search,
+    Keycode::MediaPlayPause,
+    Keycode::MediaPlay,
+    Keycode::MediaPause,
+    Keycode::MediaNext,
+    Keycode::MediaPrevious,
+    Keycode::MediaStop,
+    Keycode::Call,
+    Keycode::Endcall,
+    Keycode::NavigateIn,
+    Keycode::NavigateOut,
+    Keycode::Media,
+    Keycode::Navigation,
+    Keycode::Tel,
+    Keycode::AppSwitch,
+    Keycode::Notification,
+    Keycode::TurnCard,
+];
+
+/// The keycodes declared to the phone; it drops any other.
+pub fn keycodes(aa: &AndroidAuto) -> Vec<u32> {
+    let preset = |keys: &[Keycode]| keys.iter().map(|k| *k as u32).collect();
+    match aa.keys {
+        AaKeySet::Touch => preset(&TOUCH_KEYS),
+        AaKeySet::Rotary => preset(&ROTARY_KEYS),
+        AaKeySet::Dpad => ROTARY_KEYS
+            .iter()
+            .filter(|k| **k != Keycode::RotaryController)
+            .map(|k| *k as u32)
+            .collect(),
+        AaKeySet::Custom => aa.custom_keys.clone(),
+    }
+}
+
+fn ui_elements(aa: &AndroidAuto) -> Vec<i32> {
+    let e = aa.ui_elements;
+    [
+        (e.clock, UiElement::Clock),
+        (e.battery_level, UiElement::BatteryLevel),
+        (e.phone_signal, UiElement::PhoneSignal),
+        (e.native_ui_affordance, UiElement::NativeUiAffordance),
+        (
+            e.navigation_turn_data,
+            UiElement::NavigationTurnDataAvailable,
+        ),
+    ]
+    .into_iter()
+    .filter(|(on, _)| *on)
+    .map(|(_, el)| el as i32)
+    .collect()
+}
+
+fn nonzero(v: u32) -> Option<i32> {
+    (v > 0).then_some(v as i32)
+}
+
+fn input_source(aa: &AndroidAuto, touch: (i64, i64)) -> InputSourceService {
+    let touchscreens = aa
+        .touchscreen
+        .declared()
+        .then(|| Touchscreen {
+            width: touch.0 as i32,
+            height: touch.1 as i32,
+            r#type: (1..=3)
+                .contains(&aa.touchscreen_type)
+                .then_some(i32::from(aa.touchscreen_type)),
+        })
+        .into_iter()
+        .collect();
+    let pad = aa.touchpad;
+    let touchpads = pad
+        .enabled
+        .then(|| Touchpad {
+            width: nonzero(pad.width).unwrap_or(touch.0 as i32),
+            height: nonzero(pad.height).unwrap_or(touch.1 as i32),
+            used_for_ui_navigation: Some(pad.ui_navigation),
+            physical_width_mm: nonzero(pad.width_mm),
+            physical_height_mm: nonzero(pad.height_mm),
+            ui_absolute: Some(pad.ui_absolute),
+            tap_as_select: Some(pad.tap_as_select),
+            sensitivity: pad.sensitivity,
+        })
+        .into_iter()
+        .collect();
+    InputSourceService {
+        supported_keycodes: keycodes(aa).into_iter().map(|k| k as i32).collect(),
+        touchscreens,
+        touchpads,
+        ..Default::default()
+    }
+}
 
 const SENSORS: [SensorType; 21] = [
     SensorType::DrivingStatusData,
@@ -242,6 +347,7 @@ pub fn build(cfg: &AaConfig) -> Discovery {
             margins: Some(display_insets(main.inset)),
             content_insets: Some(main_content),
             stable_content_insets: Some(main_content),
+            head_unit_ui_elements: ui_elements(&cfg.android_auto),
             ..Default::default()
         }),
         ..Default::default()
@@ -369,18 +475,9 @@ pub fn build(cfg: &AaConfig) -> Discovery {
         ..Default::default()
     });
 
-    let (touch_w, touch_h) = main.touch_size();
     channels.push(Service {
         id: i32::from(ch::INPUT),
-        input_source: Some(InputSourceService {
-            supported_keycodes: KEYCODES.iter().map(|k| *k as i32).collect(),
-            touchscreens: vec![Touchscreen {
-                width: touch_w as i32,
-                height: touch_h as i32,
-                ..Default::default()
-            }],
-            ..Default::default()
-        }),
+        input_source: Some(input_source(&cfg.android_auto, main.touch_size())),
         ..Default::default()
     });
 
@@ -510,6 +607,136 @@ mod tests {
         assert_eq!(bt.car_address, "00:00:00:00:00:00");
         let touch = &sdr.services[6].input_source.as_ref().unwrap().touchscreens[0];
         assert_eq!((touch.width, touch.height), (1280, 720));
+    }
+
+    fn input(cfg: &AaConfig) -> InputSourceService {
+        let sdr = decoded(cfg);
+        let input = sdr.services.iter().find(|c| c.id == i32::from(ch::INPUT));
+        input.unwrap().input_source.clone().unwrap()
+    }
+
+    fn with(aa: AndroidAuto) -> AaConfig {
+        AaConfig {
+            android_auto: aa,
+            ..Default::default()
+        }
+    }
+
+    fn k(keys: &[Keycode]) -> Vec<i32> {
+        keys.iter().map(|k| *k as i32).collect()
+    }
+
+    fn main_ui(cfg: &AaConfig) -> UiConfig {
+        let sdr = decoded(cfg);
+        let sink = sdr.services[0].media_sink.as_ref().unwrap();
+        sink.video_configurations[0].ui_config.clone().unwrap()
+    }
+
+    #[test]
+    fn the_touch_preset_is_the_old_offer() {
+        let i = input(&AaConfig::default());
+        assert_eq!(i.supported_keycodes, k(&TOUCH_KEYS));
+        assert_eq!(i.supported_keycodes.len(), 50);
+        assert_eq!(i.touchscreens.len(), 1);
+        assert_eq!(i.touchscreens[0].r#type, None);
+        assert!(i.touchpads.is_empty());
+        assert!(
+            main_ui(&AaConfig::default())
+                .head_unit_ui_elements
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn auto_touch_follows_detection() {
+        use livi_core_proto::config::AaTouch;
+        let mut aa = AndroidAuto::default();
+        crate::config::resolve_touch(&mut aa, Some(false));
+        assert!(input(&with(aa.clone())).touchscreens.is_empty());
+        aa.touchscreen = AaTouch::Auto;
+        crate::config::resolve_touch(&mut aa, Some(true));
+        assert_eq!(input(&with(aa)).touchscreens.len(), 1);
+    }
+
+    #[test]
+    fn the_rotary_preset_has_no_touchscreen() {
+        let i = input(&with(AndroidAuto::rotary()));
+        assert!(i.touchscreens.is_empty());
+        assert!(i.touchpads.is_empty());
+        let keys = &i.supported_keycodes;
+        assert_eq!(keys, &k(&ROTARY_KEYS));
+        for key in [
+            Keycode::RotaryController,
+            Keycode::DpadUp,
+            Keycode::DpadDown,
+            Keycode::DpadLeft,
+            Keycode::DpadRight,
+            Keycode::DpadCenter,
+            Keycode::Back,
+            Keycode::Home,
+            Keycode::Search,
+        ] {
+            assert!(keys.contains(&(key as i32)), "{key:?}");
+        }
+        assert!(keys.contains(&65536) && keys.contains(&65544));
+        assert!(!keys.contains(&(Keycode::Keycode0 as i32)));
+    }
+
+    #[test]
+    fn the_dpad_preset_is_rotary_without_the_knob() {
+        let i = input(&with(AndroidAuto {
+            keys: AaKeySet::Dpad,
+            ..AndroidAuto::rotary()
+        }));
+        let mut want = k(&ROTARY_KEYS);
+        want.retain(|c| *c != Keycode::RotaryController as i32);
+        assert_eq!(i.supported_keycodes, want);
+        assert_eq!(i.supported_keycodes.len(), ROTARY_KEYS.len() - 1);
+    }
+
+    #[test]
+    fn a_custom_set_and_a_touchpad() {
+        let mut aa = AndroidAuto {
+            keys: AaKeySet::Custom,
+            custom_keys: vec![3, 4, 65536],
+            touchscreen_type: 2,
+            ..AndroidAuto::default()
+        };
+        aa.touchpad.enabled = true;
+        aa.touchpad.ui_navigation = true;
+        aa.touchpad.tap_as_select = true;
+        aa.touchpad.sensitivity = Some(3);
+        aa.touchpad.width_mm = 80;
+        let i = input(&with(aa));
+        assert_eq!(i.supported_keycodes, [3, 4, 65536]);
+        assert_eq!(i.touchscreens[0].r#type, Some(2));
+        let pad = &i.touchpads[0];
+        assert_eq!((pad.width, pad.height), (1280, 720));
+        assert_eq!(pad.used_for_ui_navigation, Some(true));
+        assert_eq!(pad.tap_as_select, Some(true));
+        assert_eq!(pad.ui_absolute, Some(false));
+        assert_eq!(pad.sensitivity, Some(3));
+        assert_eq!(pad.physical_width_mm, Some(80));
+        assert_eq!(pad.physical_height_mm, None);
+        let empty = input(&with(AndroidAuto {
+            keys: AaKeySet::Custom,
+            ..AndroidAuto::default()
+        }));
+        assert!(empty.supported_keycodes.is_empty());
+    }
+
+    #[test]
+    fn head_unit_ui_elements_go_out_packed() {
+        let mut aa = AndroidAuto::rotary();
+        aa.ui_elements.clock = true;
+        aa.ui_elements.navigation_turn_data = true;
+        let cfg = with(aa);
+        assert_eq!(main_ui(&cfg).head_unit_ui_elements, [1, 5]);
+        let ui = UiConfig {
+            head_unit_ui_elements: vec![1, 5],
+            ..Default::default()
+        };
+        assert_eq!(encode(&ui), [0x2a, 0x02, 0x01, 0x05]);
     }
 
     #[test]

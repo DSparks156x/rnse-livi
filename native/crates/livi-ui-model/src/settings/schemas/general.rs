@@ -4,7 +4,7 @@
 
 use crate::settings::node::{
     Choice, Condition, CustomPage, Label, Node, OnPick, OptionSource, OptionValue, Radio, Screen,
-    Shown, choice, number_choice,
+    Shown, choice, number_choice, text_choice,
 };
 
 const MIN_HEIGHT: f64 = 200.0;
@@ -146,6 +146,71 @@ fn binding(key: &'static str, text: &'static str, binding: &'static str) -> Node
     Node::key_binding(Label::new(key, text), "bindings", binding)
 }
 
+fn aa_input() -> Node {
+    let check = |key, text, path| Node::checkbox(Label::new(key, text), path);
+    Node::route(
+        "aaInput",
+        Label::new("settings.aaInput", "AA Input"),
+        vec![
+            Node::select(
+                Label::new("settings.aaTouchscreen", "Touchscreen"),
+                "androidAuto.touchscreen",
+                vec![
+                    text_choice("Auto", "auto"),
+                    text_choice("On", "on"),
+                    text_choice("Off", "off"),
+                ],
+            )
+            .icon("touch")
+            .display_value()
+            .page(Label::new("settings.aaTouchscreen", "Touchscreen")),
+            Node::select(
+                Label::new("settings.aaKeys", "Keys"),
+                "androidAuto.keys",
+                vec![
+                    text_choice("Touch", "touch"),
+                    text_choice("Rotary", "rotary"),
+                    text_choice("D-pad", "dpad"),
+                    text_choice("Custom", "custom"),
+                ],
+            )
+            .display_value()
+            .page(Label::new("settings.aaKeys", "Keys")),
+            check(
+                "settings.aaTouchpad",
+                "Touchpad",
+                "androidAuto.touchpad.enabled",
+            ),
+            check(
+                "settings.aaTouchpadNav",
+                "Touchpad Nav",
+                "androidAuto.touchpad.uiNavigation",
+            ),
+            check(
+                "settings.aaClock",
+                "HU Clock",
+                "androidAuto.uiElements.clock",
+            ),
+            check(
+                "settings.aaBattery",
+                "HU Battery",
+                "androidAuto.uiElements.batteryLevel",
+            ),
+            check(
+                "settings.aaSignal",
+                "HU Signal",
+                "androidAuto.uiElements.phoneSignal",
+            ),
+            check(
+                "settings.aaTurnCard",
+                "HU Turn Card",
+                "androidAuto.uiElements.navigationTurnData",
+            ),
+        ],
+    )
+    .icon("wirelessAa")
+}
+
 fn connections() -> Node {
     Node::route(
         "connections",
@@ -252,6 +317,7 @@ fn connections() -> Node {
                 "wirelessAaEnabled",
             )
             .icon("wirelessAa"),
+            aa_input(),
             Node::checkbox(
                 Label::new("settings.wirelessCpEnabled", "Wireless CarPlay"),
                 "wirelessCpEnabled",

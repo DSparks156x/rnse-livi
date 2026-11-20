@@ -10,7 +10,7 @@ use tokio::time::Instant;
 
 use livi_aa_proto::{
     AuthCompleteNotification, BluetoothPairingRequest, BluetoothPairingResponse,
-    ChannelOpenResponse, KeyBindingResponse, MediaConfigResponse, MediaConfigStatus,
+    ChannelOpenResponse, KeyBindingResponse, Keycode, MediaConfigResponse, MediaConfigStatus,
     MediaSetupRequest, MessageStatus, PhoneStatusNotification, PingRequest, SensorRequest,
     SensorResponse, VideoFocusMode, VideoFocusNotification, WifiAccessPointType,
     WifiCredentialsResponse, WifiCredentialsSecurityMode,
@@ -256,6 +256,52 @@ pub struct Session {
     /// The last night mode handed in, before the session runs too: the phone asks for the
     /// night sensor while the channels open, and this answers it ahead of the config's.
     night: Option<bool>,
+    /// What the SDR declared; the phone drops any other key or touch.
+    declared: Declared,
+}
+
+#[derive(Debug, Default)]
+struct Declared {
+    keys: Vec<u32>,
+    touch: bool,
+    /// Logged once per session each.
+    dropped: Vec<u32>,
+}
+
+/// Stands for touch in `Declared::dropped`; no keycode is this.
+const TOUCH_DROPPED: u32 = u32::MAX;
+
+impl Declared {
+    fn from(cfg: &AaConfig) -> Self {
+        Self {
+            keys: discovery::keycodes(&cfg.android_auto),
+            touch: cfg.android_auto.touchscreen.declared(),
+            dropped: Vec::new(),
+        }
+    }
+
+    fn drop_once(&mut self, code: u32) {
+        if !self.dropped.contains(&code) {
+            self.dropped.push(code);
+            if code == TOUCH_DROPPED {
+                println!("[Session] dropping touch: no touchscreen declared");
+            } else {
+                println!("[Session] dropping keycode {code}: not declared");
+            }
+        }
+    }
+
+    fn keep(&mut self, codes: &[u32]) -> Vec<u32> {
+        let mut kept = Vec::with_capacity(codes.len());
+        for &code in codes {
+            if self.keys.contains(&code) {
+                kept.push(code);
+            } else {
+                self.drop_once(code);
+            }
+        }
+        kept
+    }
 }
 
 impl Session {
@@ -297,6 +343,7 @@ impl Session {
             cluster_stream_wanted: true,
             shutdowns_waiting: 0,
             night: None,
+            declared: Declared::default(),
         };
         (session, vec![Out::After(WATCHDOG, Timer::Watchdog)])
     }
@@ -736,6 +783,7 @@ impl Session {
                     println!("[AaSession] {}", cfg.summary);
                 }
                 let sdr = discovery::build(&cfg);
+                self.declared = Declared::from(&cfg);
                 self.advertised = Some(cfg);
                 self.video_codecs = sdr.video_codecs;
                 self.cluster_codecs = sdr.cluster_codecs;
@@ -1123,6 +1171,10 @@ impl Session {
         if self.state != State::Running {
             return out;
         }
+        if !self.declared.touch {
+            self.declared.drop_once(TOUCH_DROPPED);
+            return out;
+        }
         if let Some(frame) = input::touch(self.ts_micros(), action, pointers, action_index) {
             self.send(&mut out, frame);
         }
@@ -1134,7 +1186,8 @@ impl Session {
         if self.state != State::Running {
             return out;
         }
-        if let Some(frame) = input::button(self.ts_micros(), codes, down, false) {
+        let codes = self.declared.keep(codes);
+        if let Some(frame) = input::button(self.ts_micros(), &codes, down, false) {
             self.send(&mut out, frame);
         }
         out
@@ -1143,6 +1196,11 @@ impl Session {
     pub fn send_rotary(&mut self, direction: i64) -> Vec<Out> {
         let mut out = Vec::new();
         if self.state != State::Running {
+            return out;
+        }
+        let rotary = Keycode::RotaryController as u32;
+        if !self.declared.keys.contains(&rotary) {
+            self.declared.drop_once(rotary);
             return out;
         }
         let frame = input::rotary(self.ts_micros(), direction);
@@ -1664,5 +1722,38 @@ pub(crate) mod tests {
         assert_eq!(out.last(), Some(&Out::ShutdownDone));
         assert_eq!(s.request_shutdown(1), [Out::ShutdownDone]);
         assert!(s.on_timer(Timer::ShutdownTimeout).is_empty());
+    }
+
+    #[test]
+    fn undeclared_keys_and_touch_are_dropped() {
+        use livi_core_proto::config::AndroidAuto;
+        let touch = [TouchPointer { x: 1, y: 1, id: 0 }];
+        let (mut s, _tx) = running(AaConfig {
+            android_auto: AndroidAuto::rotary(),
+            ..Default::default()
+        });
+        assert!(s.send_touch(0, &touch, 0).is_empty());
+        assert!(s.send_button(&[Keycode::Keycode5 as u32], true).is_empty());
+        assert_eq!(frames(&s.send_rotary(1)).len(), 1);
+        let center = Keycode::DpadCenter as u32;
+        let mixed = frames(&s.send_button(&[Keycode::Star as u32, center], true));
+        assert_eq!(mixed, frames(&s.send_button(&[center], true)));
+
+        let (mut s, _tx) = running(AaConfig {
+            android_auto: AndroidAuto {
+                keys: livi_core_proto::config::AaKeySet::Dpad,
+                ..AndroidAuto::rotary()
+            },
+            ..Default::default()
+        });
+        assert!(s.send_rotary(1).is_empty());
+
+        let (mut s, _tx) = running(AaConfig::default());
+        assert_eq!(frames(&s.send_touch(0, &touch, 0)).len(), 1);
+        assert_eq!(frames(&s.send_rotary(-1)).len(), 1);
+        assert_eq!(
+            frames(&s.send_button(&[Keycode::Keycode5 as u32], true)).len(),
+            1
+        );
     }
 }
