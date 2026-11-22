@@ -261,6 +261,7 @@ impl Rig {
             vehicle_climate: true,
             vehicle_tires: true,
             vehicle_fuel: true,
+            vehicle_range: true,
             app_version: "9.5.0".into(),
             app_build_date: String::new(),
             cluster_url: String::new(),

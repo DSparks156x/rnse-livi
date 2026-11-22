@@ -15,6 +15,7 @@ const FUELS: &str = "LIVI_CP_FUELS";
 const CONNECTORS: &str = "LIVI_CP_CONNECTORS";
 const LOCATION: &str = "LIVI_CP_LOCATION";
 const RANGE: &str = "LIVI_CP_RANGE";
+const FUEL_WARNING: &str = "LIVI_CP_FUEL_WARNING";
 const THEME: &str = "LIVI_CP_THEME";
 const BT_ADAPTER: &str = "LIVI_BT_ADAPTER";
 const MFI_FILES: &str = "LIVI_MFI_FILES";
@@ -70,6 +71,8 @@ pub struct HelperSettings {
     pub location: bool,
     /// The car reports its fuel range: CarPlay is told of range and its warning only then.
     pub range: bool,
+    /// The car has a low-fuel lamp: CarPlay is told of the range warning even without range.
+    pub fuel_warning: bool,
     pub theme: String,
     pub bt_adapter: String,
     pub mfi_files: String,
@@ -103,6 +106,7 @@ impl Default for HelperSettings {
             connectors: String::new(),
             location: false,
             range: false,
+            fuel_warning: false,
             theme: String::new(),
             bt_adapter: String::new(),
             mfi_files: String::new(),
@@ -139,6 +143,7 @@ impl HelperStart {
             (CONNECTORS, s.connectors.clone()),
             (LOCATION, flag(s.location, "")),
             (RANGE, flag(s.range, "")),
+            (FUEL_WARNING, flag(s.fuel_warning, "")),
             (THEME, s.theme.clone()),
             (BT_ADAPTER, s.bt_adapter.clone()),
             (MFI_FILES, s.mfi_files.clone()),
@@ -177,6 +182,7 @@ impl HelperStart {
                 connectors: text(CONNECTORS),
                 location: var(LOCATION).is_some_and(|v| v == "1"),
                 range: var(RANGE).is_some_and(|v| v == "1"),
+                fuel_warning: var(FUEL_WARNING).is_some_and(|v| v == "1"),
                 theme: text(THEME),
                 bt_adapter: text(BT_ADAPTER),
                 mfi_files: text(MFI_FILES),
@@ -218,6 +224,7 @@ mod tests {
                 connectors: "Combo2:150000".into(),
                 location: true,
                 range: true,
+                fuel_warning: true,
                 theme: "44C9FA31EC:985:19.0".into(),
                 bt_adapter: "hci1".into(),
                 mfi_files: "files".into(),

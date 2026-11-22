@@ -77,6 +77,7 @@ struct Sent {
     fuel: Option<(i32, Option<i32>, Option<bool>)>,
     odometer: Option<(i32, Option<i32>)>,
     environment: Option<(Option<i32>, Option<i32>)>,
+    hvac: Option<i32>,
     doors: Option<(Option<bool>, Option<bool>, [Option<bool>; 4])>,
     tire_pressure: Option<[i32; 4]>,
     gps: Option<GpsFix>,
@@ -186,12 +187,12 @@ impl AaTelemetry {
             }
         }
 
-        if (changed("fuelPct") || changed("rangeKm"))
+        if (changed("fuelPct") || changed("rangeKm") || changed("fuelLow"))
             && let Some(pct) = num(next, "fuelPct")
         {
             let level = round(pct).clamp(0, 100) as i32;
             let range = num(next, "rangeKm").map(|km| round(km).max(0) as i32);
-            let low = Some(pct < LOW_FUEL_PCT);
+            let low = Some(flag(next, "fuelLow").unwrap_or(pct < LOW_FUEL_PCT));
             if sent.fuel != Some((level, range, low)) {
                 sent.fuel = Some((level, range, low));
                 out.push(Sensor::Fuel {
@@ -224,6 +225,19 @@ impl AaTelemetry {
                 out.push(Sensor::Environment {
                     temperature_e3: temp,
                     pressure_e3: pressure,
+                });
+            }
+        }
+
+        if changed("cabinC")
+            && let Some(c) = num(next, "cabinC")
+        {
+            let current = round(c * 1000.0) as i32;
+            if sent.hvac != Some(current) {
+                sent.hvac = Some(current);
+                out.push(Sensor::Hvac {
+                    target_e3: None,
+                    current_e3: Some(current),
                 });
             }
         }
@@ -500,6 +514,32 @@ mod tests {
                 head_light: Some(2),
                 hazard_lights: None,
                 turn_indicator: Some(3)
+            }]
+        );
+    }
+
+    #[test]
+    fn the_cars_low_fuel_lamp_wins_and_the_cabin_reaches_the_hvac() {
+        let mut t = AaTelemetry::default();
+        let now = Instant::now();
+        let snap = map(json!({ "fuelPct": 30.0, "fuelLow": true, "cabinC": 24.5 }));
+        let sent = t.sensors(&Map::new(), &snap, now);
+        assert!(sent.contains(&Sensor::Fuel {
+            level_percent: 30,
+            range_km: None,
+            low_fuel_warning: Some(true)
+        }));
+        assert!(sent.contains(&Sensor::Hvac {
+            target_e3: None,
+            current_e3: Some(24500)
+        }));
+        let off = map(json!({ "fuelPct": 30.0, "fuelLow": false, "cabinC": 24.5 }));
+        assert_eq!(
+            t.sensors(&snap, &off, now),
+            [Sensor::Fuel {
+                level_percent: 30,
+                range_km: None,
+                low_fuel_warning: Some(false)
             }]
         );
     }

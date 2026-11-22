@@ -9,12 +9,16 @@ use carpi_proto::{Reading, Value as CarValue};
 use serde_json::{Map, Value, json};
 
 /// What LIVI asks carpid for.
-pub const PREFIXES: [&str; 13] = [
+pub const PREFIXES: [&str; 17] = [
     "vehicle.speed_kmh",
     "vehicle.odometer_km",
     "engine.rpm",
     "engine.coolant_c",
+    "engine.oil_temp_c",
+    "engine.manifold_mbar",
+    "climate.cabin_temp_c",
     "power.battery_v",
+    "fuel.",
     "brakes.",
     "trans.selector",
     "lights.",
@@ -25,6 +29,9 @@ pub const PREFIXES: [&str; 13] = [
     "light.dim_display_pct",
 ];
 
+/// Tank of the front wheel drive TT 8J. `LIVI_CARPI_TANK_L` sets another.
+const TANK_L: f64 = 55.0;
+
 const DOORS: [(&str, &str); 6] = [
     ("body.door_fl_open", "frontLeft"),
     ("body.door_fr_open", "frontRight"),
@@ -33,6 +40,14 @@ const DOORS: [(&str, &str); 6] = [
     ("body.hood_open", "hood"),
     ("body.trunk_open", "trunk"),
 ];
+
+pub fn tank_l() -> f64 {
+    std::env::var("LIVI_CARPI_TANK_L")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|l| l.is_finite() && *l > 0.0)
+        .unwrap_or(TANK_L)
+}
 
 /// The last valid value of each name. A reading that turned invalid drops out.
 #[derive(Default)]
@@ -52,8 +67,8 @@ impl Values {
     }
 
     /// The fields that differ from the last patch, `null` for one that went away.
-    pub fn patch(&mut self) -> Option<Value> {
-        let now = telemetry(&self.known);
+    pub fn patch(&mut self, tank_l: f64) -> Option<Value> {
+        let now = telemetry(&self.known, tank_l);
         let mut patch = Map::new();
         for (key, value) in &now {
             if self.sent.get(key) != Some(value) {
@@ -114,7 +129,7 @@ fn gear(selector: f64) -> Option<&'static str> {
     })
 }
 
-fn telemetry(known: &HashMap<String, CarValue>) -> Map<String, Value> {
+fn telemetry(known: &HashMap<String, CarValue>, tank_l: f64) -> Map<String, Value> {
     let mut out = Map::new();
     let mut put = |key: &str, value: Option<Value>| {
         if let Some(v) = value {
@@ -132,6 +147,17 @@ fn telemetry(known: &HashMap<String, CarValue>) -> Map<String, Value> {
     put("ambientC", n("ambient.outside_temp_c"));
     put("steeringDeg", n("steering.angle_deg"));
     put("dimmerPct", n("light.dim_display_pct"));
+    put("oilC", n("engine.oil_temp_c"));
+    put("cabinC", n("climate.cabin_temp_c"));
+    put(
+        "mapKpa",
+        num(known, "engine.manifold_mbar").map(|mbar| Value::from(mbar / 10.0)),
+    );
+    put("fuelLow", f("fuel.low_warning"));
+    put(
+        "fuelPct",
+        num(known, "fuel.level_l").map(|l| Value::from((l / tank_l * 100.0).clamp(0.0, 100.0))),
+    );
     let brakes = [
         flag(known, "brakes.handbrake"),
         flag(known, "brakes.epb_closed"),
@@ -190,6 +216,11 @@ mod tests {
         let mut v = Values::default();
         v.take(vec![
             reading("vehicle.speed_kmh", Some(CarValue::Num(73.5))),
+            reading("fuel.level_l", Some(CarValue::Num(27.5))),
+            reading("fuel.low_warning", Some(CarValue::Bool(false))),
+            reading("climate.cabin_temp_c", Some(CarValue::Num(24.5))),
+            reading("engine.oil_temp_c", Some(CarValue::Num(12.0))),
+            reading("engine.manifold_mbar", Some(CarValue::Num(828.0))),
             reading("brakes.handbrake", Some(CarValue::Bool(false))),
             reading("brakes.epb_closed", None),
             reading("trans.selector", Some(CarValue::Num(8.0))),
@@ -200,9 +231,14 @@ mod tests {
             reading("light.night", Some(CarValue::Bool(true))),
         ]);
         assert_eq!(
-            v.patch(),
+            v.patch(55.0),
             Some(json!({
                 "speedKph": 73.5,
+                "fuelPct": 50.0,
+                "fuelLow": false,
+                "cabinC": 24.5,
+                "oilC": 12.0,
+                "mapKpa": 82.8,
                 "parkingBrake": false,
                 "gear": "P",
                 "turnSignal": "left",
@@ -211,14 +247,14 @@ mod tests {
                 "darkMode": true,
             }))
         );
-        assert_eq!(v.patch(), None);
+        assert_eq!(v.patch(55.0), None);
 
         v.take(vec![
             reading("vehicle.speed_kmh", None),
             reading("brakes.epb_closed", Some(CarValue::Bool(true))),
         ]);
         assert_eq!(
-            v.patch(),
+            v.patch(55.0),
             Some(json!({ "speedKph": null, "parkingBrake": true }))
         );
         let gone = v.forget().unwrap();
@@ -234,7 +270,7 @@ mod tests {
             reading("lights.turn_right", Some(CarValue::Bool(true))),
             reading("lights.hazard", Some(CarValue::Bool(true))),
         ]);
-        let patch = v.patch().unwrap();
+        let patch = v.patch(55.0).unwrap();
         assert_eq!(
             (&patch["turnSignal"], &patch["hazards"]),
             (&json!("none"), &json!(true))

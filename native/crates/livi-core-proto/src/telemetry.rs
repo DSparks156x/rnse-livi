@@ -34,6 +34,7 @@
 //! | path                                | ✓    | ·            | ·               | ·             |
 //! | volume                              | ✓    | ·            | ·               | ✓             |
 //! | fuelPct                             | ✓    | ✓            | ✓ (warning, %)  | ✓             |
+//! | fuelLow                             | ✓    | ✓            | ✓ (warning)     | ·             |
 //! | rangeKm                             | ✓    | ✓            | ✓               | ✓             |
 //! | rangeFuelKm, rangeElectricKm        | ✓    | ·            | ✓ (hybrid)      | ✓ (hybrid)    |
 //! | fuelRateLph                         | ✓    | ·            | ·               | ·             |
@@ -48,6 +49,7 @@
 //! | iatC, transmissionC                 | ✓    | ·            | ·               | ·             |
 //! | oilC                                | ✓    | ·            | ·               | ·             |
 //! | ambientC                            | ✓    | ✓            | ✓               | ✓             |
+//! | cabinC                              | ✓    | ✓ (HVAC)     | ·               | ·             |
 //! | baroKpa                             | ✓    | ✓            | ·               | ·             |
 //! | mapKpa, boostKpa, throttlePct       | ✓    | ·            | ·               | ·             |
 //! | lambda, afr                         | ✓    | ·            | ·               | ·             |
@@ -106,10 +108,14 @@ pub struct TelemetrySnapshot {
     pub iat_c: Option<f64>,
     /// Outside, Android Auto and CarPlay get it too.
     pub ambient_c: Option<f64>,
+    /// Inside, measured by the car. Android Auto gets it as the HVAC's current temperature.
+    pub cabin_c: Option<f64>,
     /// The 12 V battery.
     pub battery_v: Option<f64>,
     /// 0 to 100, for an electric car the state of charge.
     pub fuel_pct: Option<f64>,
+    /// The car's low-fuel lamp. Without it the warning is `fuelPct` under 10.
+    pub fuel_low: Option<bool>,
     pub range_km: Option<f64>,
     /// Hybrids only, the range on the tank.
     pub range_fuel_km: Option<f64>,

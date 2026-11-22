@@ -97,6 +97,8 @@ pub(super) fn distance(iid: i64, kind: i64, d: Distance) -> Service {
 
 pub(super) const FUEL_ACCESSORY: i64 = 1536;
 pub(super) const TRIP_RANGE_SERVICE: i64 = 1793;
+pub(super) const FUEL_RANGE_SERVICE: i64 = 1540;
+pub(super) const FUEL_EFFICIENCY_SERVICE: i64 = 1544;
 
 pub(super) fn fuel() -> Accessory {
     use Format::*;
@@ -124,9 +126,9 @@ pub(super) fn fuel() -> Accessory {
                     .fixed(),
                 ],
             },
-            distance(1540, 0x1A00_0015, FUEL_RANGE),
+            distance(FUEL_RANGE_SERVICE, 0x1A00_0015, FUEL_RANGE),
             Service {
-                iid: 1544,
+                iid: FUEL_EFFICIENCY_SERVICE,
                 kind: 0x1A00_0014,
                 characteristics: vec![
                     car(

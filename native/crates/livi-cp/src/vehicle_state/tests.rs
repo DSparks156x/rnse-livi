@@ -221,16 +221,37 @@ fn fuel_and_range_come_only_with_fuel_data() {
             .map(|s| s.iid)
             .collect()
     };
-    let with = VehicleState::new(false, "9.5.0", "").with_fuel(true);
+    let with = VehicleState::new(false, "9.5.0", "")
+        .with_fuel(true)
+        .with_range(true);
     assert!(iids(&with).contains(&FUEL_ACCESSORY));
     assert!(services(&with).contains(&TRIP_RANGE_SERVICE));
-    let mut without = VehicleState::new(false, "9.5.0", "").with_fuel(false);
-    assert!(!iids(&without).contains(&FUEL_ACCESSORY));
-    assert!(!services(&without).contains(&TRIP_RANGE_SERVICE));
-    assert!(services(&without).contains(&1797), "the odometer stays");
-    assert!(!without.values.contains_key(&FUEL_LEVEL));
+    assert!(services(&with).contains(&FUEL_RANGE_SERVICE));
+
+    let mut level_only = VehicleState::new(false, "9.5.0", "")
+        .with_fuel(true)
+        .with_range(false);
+    assert!(iids(&level_only).contains(&FUEL_ACCESSORY));
+    for gone in [
+        FUEL_RANGE_SERVICE,
+        FUEL_EFFICIENCY_SERVICE,
+        TRIP_RANGE_SERVICE,
+    ] {
+        assert!(!services(&level_only).contains(&gone), "{gone}");
+    }
+    assert!(services(&level_only).contains(&1797), "the odometer stays");
     let gauges: Gauges =
         serde_json::from_value(serde_json::json!({ "fuelPct": 40, "rangeKm": 300 })).unwrap();
+    level_only.set_gauges(&gauges);
+    assert_eq!(level_only.values.get(&FUEL_LEVEL), Some(&Value::Int(40)));
+    assert!(!level_only.values.contains_key(&REMAINING_RANGE.km));
+    assert!(!level_only.values.contains_key(&FUEL_RANGE.km));
+
+    let mut without = VehicleState::new(false, "9.5.0", "")
+        .with_fuel(false)
+        .with_range(false);
+    assert!(!iids(&without).contains(&FUEL_ACCESSORY));
+    assert!(services(&without).contains(&1797), "the odometer stays");
     without.set_gauges(&gauges);
     assert!(!without.values.contains_key(&FUEL_LEVEL));
     assert!(!without.values.contains_key(&REMAINING_RANGE.km));

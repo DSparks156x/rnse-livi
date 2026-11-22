@@ -462,11 +462,14 @@ pub fn stack_config(
         },
         audio_device: cfg.audio_output_device.clone().unwrap_or_default(),
         audio_input_device: cfg.audio_input_device.clone().unwrap_or_default(),
-        // The car has no climate control on its bus to show or drive (rnse-carpi).
+        // The Climatronic only reports its state on ICAN, nothing there takes commands, so
+        // CarPlay's climate controls would do nothing (rnse-carpi).
         vehicle_climate: false,
-        // No TPMS and no fuel data on the bus.
+        // No TPMS. The cluster reports the tank level, but the trip computer's range and
+        // consumption never reach ICAN.
         vehicle_tires: false,
-        vehicle_fuel: false,
+        vehicle_fuel: true,
+        vehicle_range: false,
         app_version: env!("CARGO_PKG_VERSION").into(),
         app_build_date: option_env!("LIVI_BUILD_DATE").unwrap_or_default().into(),
         cluster_url: cluster_url(cfg),

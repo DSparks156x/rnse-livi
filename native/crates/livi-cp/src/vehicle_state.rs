@@ -442,12 +442,25 @@ impl VehicleState {
         self
     }
 
-    /// Fuel level, consumption and range only for a car that reports them: without, the fuel
-    /// accessory and the trip computer's range go.
+    /// The fuel accessory only for a car that reports its tank level.
     pub fn with_fuel(mut self, fuel: bool) -> Self {
         if !fuel {
             self.drop_accessory(FUEL_ACCESSORY);
-            self.drop_service(TRIP_RANGE_SERVICE);
+        }
+        self
+    }
+
+    /// Range and consumption only for a car with a trip computer that reports them: without, the
+    /// fuel accessory keeps just its level and the trip computer just its odometer.
+    pub fn with_range(mut self, range: bool) -> Self {
+        if !range {
+            for service in [
+                FUEL_RANGE_SERVICE,
+                FUEL_EFFICIENCY_SERVICE,
+                TRIP_RANGE_SERVICE,
+            ] {
+                self.drop_service(service);
+            }
         }
         self
     }

@@ -42,6 +42,7 @@ fn config(path: &str) -> LiviSockConfig {
             plugs: Plugs::default(),
             location: true,
             range: true,
+            fuel_warning: true,
             theme: None,
         },
         cp: CpConfig {

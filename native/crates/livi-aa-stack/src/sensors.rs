@@ -5,8 +5,8 @@
 use livi_aa_proto::{
     BatteryConfig, CarLocation, ChargingPrefs, CurrentGear, DoorStates, DrivingStatus,
     EnergyConsumption, EnergyRate, EnergyValue, EngineRpm, EnvironmentConditions, FuelLevel,
-    LightStates, NightModeData, Odometer, ParkingBrake, SensorBatchNotification, TirePressures,
-    VehicleEnergyModel, VehicleSpeed,
+    HvacTemperatures, LightStates, NightModeData, Odometer, ParkingBrake, SensorBatchNotification,
+    TirePressures, VehicleEnergyModel, VehicleSpeed,
 };
 use prost::Message;
 
@@ -46,6 +46,10 @@ pub enum Sensor {
     Odometer {
         total_km_e1: i32,
         trip_km_e1: Option<i32>,
+    },
+    Hvac {
+        target_e3: Option<i32>,
+        current_e3: Option<i32>,
     },
     DrivingStatus(i32),
     /// Front left, front right, rear left, rear right. The phone gets the doors up to the first
@@ -179,6 +183,18 @@ pub fn batch(sensor: &Sensor) -> Option<Vec<u8>> {
             b.odometers.push(Odometer {
                 odometer_km_e1: total_km_e1,
                 trip_km_e1,
+            });
+        }
+        Sensor::Hvac {
+            target_e3,
+            current_e3,
+        } => {
+            if target_e3.is_none() && current_e3.is_none() {
+                return None;
+            }
+            b.hvac_temperatures.push(HvacTemperatures {
+                target_temperature_e3: target_e3,
+                current_temperature_e3: current_e3,
             });
         }
         Sensor::DrivingStatus(restrictions) => {

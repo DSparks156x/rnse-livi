@@ -32,10 +32,11 @@ fn num(map: &Map<String, Value>, key: &str) -> Option<f64> {
     map.get(key).and_then(Value::as_f64)
 }
 
-const VEHICLE_STATUS_KEYS: [&str; 10] = [
+const VEHICLE_STATUS_KEYS: [&str; 11] = [
     "rangeKm",
     "ambientC",
     "fuelPct",
+    "fuelLow",
     "rangeFuelKm",
     "rangeElectricKm",
     "batteryCapacityKwh",
@@ -126,9 +127,11 @@ impl CpTelemetry {
                 "outsideTemperature",
                 num(next, "ambientC").map(|c| (c.round() as i64).into()),
             );
+            let lamp = next.get("fuelLow").and_then(Value::as_bool);
             put(
                 "rangeWarning",
-                num(next, "fuelPct").map(|pct| (pct < LOW_FUEL_PCT).into()),
+                lamp.or_else(|| num(next, "fuelPct").map(|pct| pct < LOW_FUEL_PCT))
+                    .map(Value::from),
             );
             let capacity = num(next, "batteryCapacityKwh").filter(|c| *c > 0.0);
             let level = num(next, "batteryLevelKwh")
@@ -313,6 +316,15 @@ mod tests {
             cmds.try_recv(),
             Ok(CpCmd::Gauges(obj(json!({ "fuelPct": 10 }))))
         );
+
+        let lamp = obj(json!({ "fuelPct": 30, "fuelLow": true }));
+        t.follow(&second, &lamp, &cp);
+        assert_eq!(
+            next(&mut lines).await,
+            r#"vehicle-status {"batteryPercentE3":30000,"rangeWarning":true}"#,
+            "the car's low-fuel lamp wins over the level"
+        );
+        let _ = cmds.try_recv();
 
         let hybrid = obj(json!({ "rangeFuelKm": 512.6, "rangeElectricKm": 41.2 }));
         t.follow(&second, &hybrid, &cp);

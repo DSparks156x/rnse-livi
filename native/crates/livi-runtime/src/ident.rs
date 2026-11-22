@@ -17,6 +17,8 @@ pub struct Identity {
     pub location: bool,
     /// The car reports its fuel range (and so a low-range warning).
     pub range: bool,
+    /// The car has a low-fuel lamp: the range warning even without range.
+    pub fuel_warning: bool,
     pub theme: Option<Theme>,
 }
 
@@ -164,7 +166,7 @@ pub fn build_identification(
                 name: id.name.clone(),
                 range: id.range,
                 outside_temperature: true,
-                range_warning: id.range,
+                range_warning: id.range || id.fuel_warning,
                 range_gasoline: id.range && id.fuels.gasoline,
                 range_diesel: id.range && id.fuels.diesel,
                 range_electric: id.fuels.electric,
@@ -230,6 +232,7 @@ mod tests {
             plugs: Plugs::default(),
             location,
             range: false,
+            fuel_warning: false,
             theme: None,
         }
     }
@@ -247,6 +250,15 @@ mod tests {
             .vehicle_status_component
             .unwrap();
         assert!(status.range && status.range_warning && status.range_gasoline);
+        let id = Identity {
+            range: false,
+            fuel_warning: true,
+            ..id
+        };
+        let status = build_identification(&id, Transport::Wired, &[])
+            .vehicle_status_component
+            .unwrap();
+        assert!(!status.range && status.range_warning && !status.range_gasoline);
     }
 
     #[test]

@@ -92,8 +92,10 @@ fn settings(cfg: &Config) -> HelperSettings {
         fuels: cp_fuels(cfg.car_type).to_string(),
         connectors: cp_connectors(cfg),
         location: cfg.gps_enabled,
-        // No fuel data on this car's bus (rnse-carpi).
+        // The cluster reports the low-fuel lamp, the trip computer's range never reaches ICAN
+        // (rnse-carpi).
         range: false,
+        fuel_warning: true,
         theme: cfg.car_play_theme.clone(),
         bt_adapter: cfg.bt_adapter.clone(),
         mfi_files: cfg.car_play_mfi_files.clone(),

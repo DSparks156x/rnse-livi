@@ -74,6 +74,7 @@ pub async fn run(hooks: Hooks) {
         input,
     };
     let path = socket();
+    let tank_l = values::tank_l();
     let mut ap = Ap::new(
         Systemd {
             state: state.clone(),
@@ -90,6 +91,7 @@ pub async fn run(hooks: Hooks) {
             &mut state,
             &telemetry,
             &mut values,
+            tank_l,
             &mut connected,
             &mut ap,
             &out,
@@ -144,6 +146,7 @@ async fn session(
     state: &mut watch::Receiver<State>,
     telemetry: &mpsc::UnboundedSender<Value>,
     values: &mut Values,
+    tank_l: f64,
     connected: &mut bool,
     ap: &mut Ap<impl Service>,
     out: &Outlets,
@@ -193,6 +196,7 @@ async fn session(
         state,
         telemetry,
         values,
+        tank_l,
         &mut writer,
         &mut incoming,
         ap,
@@ -208,6 +212,7 @@ async fn follow(
     state: &mut watch::Receiver<State>,
     telemetry: &mpsc::UnboundedSender<Value>,
     values: &mut Values,
+    tank_l: f64,
     writer: &mut OwnedWriteHalf,
     incoming: &mut mpsc::UnboundedReceiver<io::Result<Response>>,
     ap: &mut Ap<impl Service>,
@@ -245,7 +250,7 @@ async fn follow(
             frame = incoming.recv() => match frame {
                 Some(Ok(Response::Update { sub: SUB, items })) => {
                     values.take(items);
-                    if let Some(patch) = values.patch() {
+                    if let Some(patch) = values.patch(tank_l) {
                         let _ = telemetry.send(patch);
                     }
                 }
@@ -436,6 +441,7 @@ mod tests {
                     &mut state,
                     &telemetry,
                     &mut values,
+                    55.0,
                     &mut connected,
                     &mut ap,
                     &out,

@@ -80,6 +80,7 @@ fn identity() -> Identity {
         plugs: Plugs::default(),
         location: true,
         range: true,
+        fuel_warning: true,
         theme: None,
     }
 }

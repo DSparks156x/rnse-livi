@@ -746,6 +746,7 @@ mod tests {
             plugs: Default::default(),
             location: true,
             range: true,
+            fuel_warning: true,
             theme,
         };
         for transport in [Transport::Wireless, Transport::Wired] {

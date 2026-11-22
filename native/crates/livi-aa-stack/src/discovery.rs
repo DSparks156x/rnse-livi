@@ -95,10 +95,11 @@ const KEYCODES: [Keycode; 17] = [
     Keycode::Tel,
 ];
 
-/// What carpid reads off the bus and `livi-carpi` passes on. No fuel, tire pressure, climate,
-/// accelerometer, gyroscope or compass: the car has none of them on CAN. No driving status
-/// either: nothing reports it.
-const CAR_SENSORS: [SensorType; 9] = [
+/// What carpid reads off the bus and `livi-carpi` passes on: fuel is the cluster's tank level and
+/// low-fuel lamp, HVAC the Climatronic's cabin temperature. No tire pressure, accelerometer,
+/// gyroscope or compass: the car has none of them on CAN. No driving status either: nothing
+/// reports it.
+const CAR_SENSORS: [SensorType; 11] = [
     SensorType::NightMode,
     SensorType::Speed,
     SensorType::Rpm,
@@ -108,6 +109,8 @@ const CAR_SENSORS: [SensorType; 9] = [
     SensorType::EnvironmentData,
     SensorType::DoorData,
     SensorType::LightData,
+    SensorType::Fuel,
+    SensorType::HvacData,
 ];
 
 const EV_SENSORS: [SensorType; 3] = [
@@ -520,19 +523,22 @@ mod tests {
         };
         for missing in [
             SensorType::Location,
-            SensorType::HvacData,
             SensorType::TirePressureData,
             SensorType::AccelerometerData,
             SensorType::GyroscopeData,
             SensorType::Compass,
             SensorType::GpsSatelliteData,
             SensorType::VehicleEnergyModelData,
-            SensorType::Fuel,
             SensorType::DrivingStatusData,
         ] {
             assert!(!has(missing), "{missing:?} has no source");
         }
-        for present in [SensorType::Speed, SensorType::DoorData] {
+        for present in [
+            SensorType::Speed,
+            SensorType::DoorData,
+            SensorType::Fuel,
+            SensorType::HvacData,
+        ] {
             assert!(has(present), "{present:?}");
         }
         assert_eq!(sensors.location_characterization, None);

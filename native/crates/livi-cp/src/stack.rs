@@ -136,8 +136,10 @@ pub struct StackConfig {
     pub vehicle_climate: bool,
     /// The car reports tire pressures: CarPlay gets the tire accessory only then.
     pub vehicle_tires: bool,
-    /// The car reports fuel level, consumption or range: CarPlay gets them only then.
+    /// The car reports its tank level: CarPlay gets the fuel accessory only then.
     pub vehicle_fuel: bool,
+    /// The car reports range and consumption: CarPlay gets them only then.
+    pub vehicle_range: bool,
     pub app_version: String,
     pub app_build_date: String,
     pub cluster_url: String,
@@ -541,6 +543,7 @@ pub async fn run<M: Media>(
             .with_climate(cfg.vehicle_climate)
             .with_tires(cfg.vehicle_tires)
             .with_fuel(cfg.vehicle_fuel)
+            .with_range(cfg.vehicle_range)
             .with_variant(&cfg.vehicle_variant)
             .with_engines(cfg.engines)
             .with_cluster_content(cfg.cluster_content.as_ref())

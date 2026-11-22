@@ -76,6 +76,7 @@ pub fn carplay(start: &HelperStart, transport: Transport) -> (Identity, CpConfig
         plugs: Plugs::parse(&s.connectors),
         location: s.location,
         range: s.range,
+        fuel_warning: s.fuel_warning,
         theme,
     };
     (identity, cp)
