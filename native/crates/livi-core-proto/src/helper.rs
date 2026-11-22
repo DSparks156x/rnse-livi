@@ -13,6 +13,8 @@ const CP_DEBUG: &str = "LIVI_CP_DEBUG";
 const CAR_NAME: &str = "LIVI_CP_NAME";
 const FUELS: &str = "LIVI_CP_FUELS";
 const CONNECTORS: &str = "LIVI_CP_CONNECTORS";
+const LOCATION: &str = "LIVI_CP_LOCATION";
+const RANGE: &str = "LIVI_CP_RANGE";
 const THEME: &str = "LIVI_CP_THEME";
 const BT_ADAPTER: &str = "LIVI_BT_ADAPTER";
 const MFI_FILES: &str = "LIVI_MFI_FILES";
@@ -64,6 +66,10 @@ pub struct HelperSettings {
     pub car_name: String,
     pub fuels: String,
     pub connectors: String,
+    /// A GNSS receiver feeds LIVI: CarPlay is told the car has location only then.
+    pub location: bool,
+    /// The car reports its fuel range: CarPlay is told of range and its warning only then.
+    pub range: bool,
     pub theme: String,
     pub bt_adapter: String,
     pub mfi_files: String,
@@ -95,6 +101,8 @@ impl Default for HelperSettings {
             car_name: String::new(),
             fuels: String::new(),
             connectors: String::new(),
+            location: false,
+            range: false,
             theme: String::new(),
             bt_adapter: String::new(),
             mfi_files: String::new(),
@@ -129,6 +137,8 @@ impl HelperStart {
             (CAR_NAME, s.car_name.clone()),
             (FUELS, s.fuels.clone()),
             (CONNECTORS, s.connectors.clone()),
+            (LOCATION, flag(s.location, "")),
+            (RANGE, flag(s.range, "")),
             (THEME, s.theme.clone()),
             (BT_ADAPTER, s.bt_adapter.clone()),
             (MFI_FILES, s.mfi_files.clone()),
@@ -165,6 +175,8 @@ impl HelperStart {
                 car_name: text(CAR_NAME),
                 fuels: text(FUELS),
                 connectors: text(CONNECTORS),
+                location: var(LOCATION).is_some_and(|v| v == "1"),
+                range: var(RANGE).is_some_and(|v| v == "1"),
                 theme: text(THEME),
                 bt_adapter: text(BT_ADAPTER),
                 mfi_files: text(MFI_FILES),
@@ -204,6 +216,8 @@ mod tests {
                 car_name: "LIVI".into(),
                 fuels: "Gasoline,Electric".into(),
                 connectors: "Combo2:150000".into(),
+                location: true,
+                range: true,
                 theme: "44C9FA31EC:985:19.0".into(),
                 bt_adapter: "hci1".into(),
                 mfi_files: "files".into(),

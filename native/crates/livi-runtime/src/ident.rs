@@ -13,6 +13,10 @@ pub struct Identity {
     pub bt_mac: [u8; 6],
     pub fuels: Fuels,
     pub plugs: Plugs,
+    /// The car has a location source (a GNSS receiver) to send the phone.
+    pub location: bool,
+    /// The car reports its fuel range (and so a low-range warning).
+    pub range: bool,
     pub theme: Option<Theme>,
 }
 
@@ -158,13 +162,13 @@ pub fn build_identification(
             Some(VehicleStatusComponent {
                 id: 0,
                 name: id.name.clone(),
-                range: true,
+                range: id.range,
                 outside_temperature: true,
-                range_warning: true,
-                range_gasoline: id.fuels.gasoline,
-                range_diesel: id.fuels.diesel,
+                range_warning: id.range,
+                range_gasoline: id.range && id.fuels.gasoline,
+                range_diesel: id.range && id.fuels.diesel,
                 range_electric: id.fuels.electric,
-                range_cng: id.fuels.cng,
+                range_cng: id.range && id.fuels.cng,
                 range_warning_gasoline: false,
                 range_warning_diesel: false,
                 range_warning_electric: false,
@@ -173,7 +177,8 @@ pub fn build_identification(
                 max_range_info: id.fuels.electric,
             })
         },
-        location_information_component: if dropped("location_information_component") {
+        location_information_component: if !id.location || dropped("location_information_component")
+        {
             None
         } else {
             Some(LocationInformationComponent {
@@ -209,5 +214,48 @@ pub fn build_identification(
                 max_lane_guidance_storage_capacity: Some(50),
             }]
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn identity(location: bool) -> Identity {
+        Identity {
+            name: "LIVI".into(),
+            ssid: "LIVI".into(),
+            bt_mac: [0; 6],
+            fuels: Fuels::parse("Gasoline"),
+            plugs: Plugs::default(),
+            location,
+            range: false,
+            theme: None,
+        }
+    }
+
+    #[test]
+    fn range_is_offered_only_with_fuel_data() {
+        let id = identity(false);
+        let status = build_identification(&id, Transport::Wired, &[])
+            .vehicle_status_component
+            .unwrap();
+        assert!(!status.range && !status.range_warning && !status.range_gasoline);
+        assert!(status.outside_temperature);
+        let id = Identity { range: true, ..id };
+        let status = build_identification(&id, Transport::Wired, &[])
+            .vehicle_status_component
+            .unwrap();
+        assert!(status.range && status.range_warning && status.range_gasoline);
+    }
+
+    #[test]
+    fn location_is_offered_only_with_a_receiver() {
+        for transport in [Transport::Wired, Transport::Wireless] {
+            let without = build_identification(&identity(false), transport, &[]);
+            assert!(without.location_information_component.is_none());
+            let with = build_identification(&identity(true), transport, &[]);
+            assert!(with.location_information_component.is_some());
+        }
     }
 }

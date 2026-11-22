@@ -701,10 +701,6 @@ async fn keys_follow_the_bindings() {
         ("KeyY", StackCmd::Media(media_button::PAUSE)),
         ("KeyB", StackCmd::Media(media_button::PREV)),
         ("KeyR", StackCmd::Telephony(telephony_button::DROP)),
-        ("Digit0", StackCmd::Telephony(telephony_button::KEY0)),
-        ("Digit9", StackCmd::Telephony(telephony_button::KEY0 + 9)),
-        ("KeyM", StackCmd::Telephony(telephony_button::STAR)),
-        ("KeyG", StackCmd::Telephony(telephony_button::POUND)),
         ("KeyO", StackCmd::Telephony(telephony_button::HOOK_SWITCH)),
         ("KeyZ", StackCmd::NextClusterContent),
     ] {
@@ -1606,8 +1602,6 @@ async fn android_auto_touches_land_on_its_stream_and_the_voice_key_is_held() {
         [
             command(5, Command::VoiceAssistant),
             command(5, Command::VoiceAssistantRelease),
-            command(5, Command::PhoneKey7),
-            command(5, Command::PhoneKey0),
             command(5, Command::Left),
             command(5, Command::Right),
             command(5, Command::Up),

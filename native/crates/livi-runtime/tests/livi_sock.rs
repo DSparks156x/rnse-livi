@@ -40,6 +40,8 @@ fn config(path: &str) -> LiviSockConfig {
             bt_mac: [0; 6],
             fuels: Fuels::default(),
             plugs: Plugs::default(),
+            location: true,
+            range: true,
             theme: None,
         },
         cp: CpConfig {

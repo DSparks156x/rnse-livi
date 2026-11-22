@@ -744,6 +744,8 @@ mod tests {
             bt_mac: [0; 6],
             fuels: Default::default(),
             plugs: Default::default(),
+            location: true,
+            range: true,
             theme,
         };
         for transport in [Transport::Wireless, Transport::Wired] {

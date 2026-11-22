@@ -434,6 +434,52 @@ impl VehicleState {
         self
     }
 
+    /// Tire pressures only for a car that reports them.
+    pub fn with_tires(mut self, tires: bool) -> Self {
+        if !tires {
+            self.drop_accessory(TIRES);
+        }
+        self
+    }
+
+    /// Fuel level, consumption and range only for a car that reports them: without, the fuel
+    /// accessory and the trip computer's range go.
+    pub fn with_fuel(mut self, fuel: bool) -> Self {
+        if !fuel {
+            self.drop_accessory(FUEL_ACCESSORY);
+            self.drop_service(TRIP_RANGE_SERVICE);
+        }
+        self
+    }
+
+    fn forget(&mut self, gone: &[Characteristic]) {
+        for c in gone {
+            self.values.remove(&c.iid);
+            if let Some(n) = c.notifier {
+                self.values.remove(&n);
+            }
+        }
+    }
+
+    fn drop_accessory(&mut self, iid: i64) {
+        if let Some(at) = self.accessories.iter().position(|a| a.iid == iid) {
+            let gone = self.accessories.remove(at);
+            for s in &gone.services {
+                self.forget(&s.characteristics);
+            }
+        }
+    }
+
+    fn drop_service(&mut self, iid: i64) {
+        let gone = self.accessories.iter_mut().find_map(|a| {
+            let at = a.services.iter().position(|s| s.iid == iid)?;
+            Some(a.services.remove(at))
+        });
+        if let Some(gone) = gone {
+            self.forget(&gone.characteristics);
+        }
+    }
+
     pub fn with_images(mut self, images: &[(String, Vec<u8>)]) -> Self {
         if images.is_empty() {
             return self;

@@ -259,6 +259,8 @@ impl Rig {
             audio_device: "out".into(),
             audio_input_device: "in".into(),
             vehicle_climate: true,
+            vehicle_tires: true,
+            vehicle_fuel: true,
             app_version: "9.5.0".into(),
             app_build_date: String::new(),
             cluster_url: String::new(),

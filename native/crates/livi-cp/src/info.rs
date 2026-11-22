@@ -9,6 +9,7 @@ const STREAM_TYPE_MAIN_SCREEN: u64 = 110;
 const STREAM_TYPE_ALT_SCREEN: u64 = 111;
 const DISPLAY_FEATURE_KNOBS: u64 = 0x02;
 const DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH: u64 = 0x08;
+const PRIMARY_INPUT_TOUCH: u64 = 1;
 const PRIMARY_INPUT_KNOBS: u64 = 3;
 const APPEARANCE_DARK: u64 = 1;
 const APPEARANCE_AUTOMATIC: u64 = 0;
@@ -52,6 +53,9 @@ pub struct DisplayConfig {
     pub width_physical_mm: Option<i64>,
     pub height_physical_mm: Option<i64>,
     pub fps: Option<i64>,
+    /// A touch device drives this display. Without one it is knob only: no touch features and
+    /// no touchscreen HID.
+    pub touch: bool,
     pub primary_input_device: Option<i64>,
     pub view_area: Option<Insets>,
     pub safe_area: Option<Insets>,
@@ -242,11 +246,19 @@ fn display(d: &DisplayConfig, kind: u64, uuid: &str) -> Value {
         ("heightPhysical".to_string(), num(height_physical)),
         (
             "features".to_string(),
-            Value::Int(DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH | DISPLAY_FEATURE_KNOBS),
+            Value::Int(if d.touch {
+                DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH | DISPLAY_FEATURE_KNOBS
+            } else {
+                DISPLAY_FEATURE_KNOBS
+            }),
         ),
         (
             "primaryInputDevice".to_string(),
-            num(d.primary_input_device.unwrap_or(PRIMARY_INPUT_KNOBS as i64)),
+            num(d.primary_input_device.unwrap_or(if d.touch {
+                PRIMARY_INPUT_TOUCH as i64
+            } else {
+                PRIMARY_INPUT_KNOBS as i64
+            })),
         ),
         ("cornerMasks".to_string(), Value::Bool(false)),
         ("adjacentViewAreas".to_string(), Value::Array(Vec::new())),
@@ -332,16 +344,19 @@ pub fn build(cfg: &InfoConfig) -> Value {
         ]),
     ));
     info.push(("displays".to_string(), Value::Array(displays)));
-    let mut hid_devices = vec![
-        hid::touch_device(
+    let mut hid_devices = Vec::new();
+    if cfg.main.touch {
+        hid_devices.push(hid::touch_device(
             hid_axis(cfg.main.width_pixels),
             hid_axis(cfg.main.height_pixels),
             &main_uuid,
-        ),
+        ));
+    }
+    hid_devices.extend([
         hid::knob_device(&main_uuid),
         hid::media_device(&main_uuid),
         hid::telephony_device(&main_uuid),
-    ];
+    ]);
     if cfg.theme_displays.is_some() && cfg.cluster.is_some() {
         hid_devices.push(hid::cluster_knob_device(&alt_uuid));
     }
@@ -470,6 +485,7 @@ pub(crate) mod tests {
                 width_pixels: 1280,
                 height_pixels: 720,
                 fps: Some(60),
+                touch: true,
                 view_area: Some(Insets::default()),
                 safe_area: Some(Insets {
                     top: 0,
@@ -516,6 +532,49 @@ pub(crate) mod tests {
         wide.main.width_pixels = 1920;
         wide.main.height_pixels = 1080;
         assert_eq!(size(&wide), (Some(Value::Int(244)), Some(Value::Int(137))));
+    }
+
+    #[test]
+    fn a_display_without_touch_offers_knobs_only() {
+        let hid_names = |info: &Value| -> Vec<String> {
+            info.get("hidDevices")
+                .and_then(Value::as_array)
+                .unwrap()
+                .iter()
+                .filter_map(|d| d.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        };
+        let main =
+            |info: &Value| info.get("displays").and_then(Value::as_array).unwrap()[0].clone();
+
+        let touch = build(&sample());
+        assert!(hid_names(&touch).contains(&"LIVI Touchscreen".to_string()));
+        assert_eq!(
+            main(&touch).get("features"),
+            Some(&Value::Int(
+                DISPLAY_FEATURE_HIGH_FIDELITY_TOUCH | DISPLAY_FEATURE_KNOBS
+            ))
+        );
+        assert_eq!(
+            main(&touch).get("primaryInputDevice"),
+            Some(&Value::Int(PRIMARY_INPUT_TOUCH))
+        );
+
+        let mut cfg = sample();
+        cfg.main.touch = false;
+        let knob = build(&cfg);
+        assert_eq!(
+            hid_names(&knob),
+            ["LIVI Knob", "LIVI Media", "LIVI Telephony"]
+        );
+        assert_eq!(
+            main(&knob).get("features"),
+            Some(&Value::Int(DISPLAY_FEATURE_KNOBS))
+        );
+        assert_eq!(
+            main(&knob).get("primaryInputDevice"),
+            Some(&Value::Int(PRIMARY_INPUT_KNOBS))
+        );
     }
 
     #[test]

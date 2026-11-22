@@ -74,6 +74,8 @@ pub fn carplay(start: &HelperStart, transport: Transport) -> (Identity, CpConfig
         bt_mac: [0; 6],
         fuels: Fuels::parse(&s.fuels),
         plugs: Plugs::parse(&s.connectors),
+        location: s.location,
+        range: s.range,
         theme,
     };
     (identity, cp)

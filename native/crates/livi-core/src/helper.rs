@@ -91,6 +91,9 @@ fn settings(cfg: &Config) -> HelperSettings {
         car_name,
         fuels: cp_fuels(cfg.car_type).to_string(),
         connectors: cp_connectors(cfg),
+        location: cfg.gps_enabled,
+        // No fuel data on this car's bus (rnse-carpi).
+        range: false,
         theme: cfg.car_play_theme.clone(),
         bt_adapter: cfg.bt_adapter.clone(),
         mfi_files: cfg.car_play_mfi_files.clone(),

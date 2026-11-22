@@ -78,6 +78,8 @@ fn identity() -> Identity {
         bt_mac: [0xAA, 0xBB, 0xCC, 0x11, 0x22, 0x33],
         fuels: Fuels::parse("Gasoline"),
         plugs: Plugs::default(),
+        location: true,
+        range: true,
         theme: None,
     }
 }

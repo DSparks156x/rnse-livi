@@ -47,11 +47,11 @@ const MEDIA_DESCRIPTOR: &[u8] = &[
     0x02, 0x75, 0x08, 0x95, 0x01, 0x81, 0x00, 0xc0,
 ];
 
+/// Telephony page, one array byte: none, Hook Switch, Drop. The car answers and hangs up from
+/// the wheel; it has no keypad, flash or mute key, so none is declared.
 const TELEPHONY_DESCRIPTOR: &[u8] = &[
-    0x05, 0x0b, 0x09, 0x07, 0xa1, 0x01, 0x15, 0x00, 0x25, 0x11, 0x05, 0x0b, 0x09, 0x00, 0x09, 0x20,
-    0x09, 0x21, 0x09, 0x26, 0x09, 0x2f, 0x09, 0xb0, 0x09, 0xb1, 0x09, 0xb2, 0x09, 0xb3, 0x09, 0xb4,
-    0x09, 0xb5, 0x09, 0xb6, 0x09, 0xb7, 0x09, 0xb8, 0x09, 0xb9, 0x09, 0xba, 0x09, 0xbb, 0x05, 0x07,
-    0x09, 0x2a, 0x75, 0x08, 0x95, 0x01, 0x81, 0x00, 0xc0,
+    0x05, 0x0b, 0x09, 0x07, 0xa1, 0x01, 0x15, 0x00, 0x25, 0x02, 0x05, 0x0b, 0x09, 0x00, 0x09, 0x20,
+    0x09, 0x26, 0x75, 0x08, 0x95, 0x01, 0x81, 0x00, 0xc0,
 ];
 
 fn device_entry(uid: u32, name: &str, descriptor: Vec<u8>, display_uuid: &str) -> Value {
@@ -149,16 +149,11 @@ pub mod media_button {
     pub const NAV_GUIDANCE: u8 = 6;
 }
 
+/// Indices into `TELEPHONY_DESCRIPTOR`.
 pub mod telephony_button {
     pub const NONE: u8 = 0;
     pub const HOOK_SWITCH: u8 = 1;
-    pub const FLASH: u8 = 2;
-    pub const DROP: u8 = 3;
-    pub const MUTE: u8 = 4;
-    pub const KEY0: u8 = 5;
-    pub const STAR: u8 = 15;
-    pub const POUND: u8 = 16;
-    pub const DELETE: u8 = 17;
+    pub const DROP: u8 = 2;
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -248,6 +243,11 @@ mod tests {
             Some("2a2a2a2b")
         );
         assert_eq!(media_report(media_button::NEXT), [4]);
-        assert_eq!(telephony_report(telephony_button::KEY0 + 9), [14]);
+        assert_eq!(telephony_report(telephony_button::DROP), [2]);
+        let Some(Value::Data(desc)) = telephony_device("m").get("hidDescriptor").cloned() else {
+            panic!("no descriptor");
+        };
+        // Logical maximum 2: none, Hook Switch, Drop.
+        assert_eq!(&desc[8..10], &[0x25, 0x02]);
     }
 }

@@ -433,7 +433,9 @@ pub fn stack_config(
                 width_physical_mm: main_mm.map(|m| m.0),
                 height_physical_mm: main_mm.map(|m| m.1),
                 fps: Some(or(cfg.projection_fps, 60).into()),
-                primary_input_device: Some(1),
+                // Set from the display list (`with_touch`); the primary input follows it.
+                touch: false,
+                primary_input_device: None,
                 view_area: insets(
                     cfg.projection_view_area_top,
                     cfg.projection_view_area_bottom,
@@ -460,7 +462,11 @@ pub fn stack_config(
         },
         audio_device: cfg.audio_output_device.clone().unwrap_or_default(),
         audio_input_device: cfg.audio_input_device.clone().unwrap_or_default(),
-        vehicle_climate: cfg.car_play_vehicle_climate,
+        // The car has no climate control on its bus to show or drive (rnse-carpi).
+        vehicle_climate: false,
+        // No TPMS and no fuel data on the bus.
+        vehicle_tires: false,
+        vehicle_fuel: false,
         app_version: env!("CARGO_PKG_VERSION").into(),
         app_build_date: option_env!("LIVI_BUILD_DATE").unwrap_or_default().into(),
         cluster_url: cluster_url(cfg),
@@ -617,6 +623,29 @@ fn with_images(mut cfg: StackConfig, images: &Path) -> StackConfig {
     cfg
 }
 
+/// A touch screen drives the main display: the display LIVI puts its main screen on, as the
+/// settings pick it (`displayConnector`, else the one reporting itself main, else the first),
+/// lists a touch device. Same rule as the on-screen keyboard's. Without one, CarPlay and
+/// Android Auto get knob control only.
+pub fn main_touch(state: &State) -> bool {
+    let displays = &state.system.displays;
+    let chosen = state.config.display_connector.main.as_str();
+    let main = if chosen.is_empty() {
+        displays
+            .iter()
+            .find(|d| d.screen == Some(Screen::Main))
+            .or(displays.first())
+    } else {
+        displays.iter().find(|d| d.connector == chosen)
+    };
+    main.is_some_and(|d| !d.touch.is_empty())
+}
+
+fn with_touch(mut cfg: StackConfig, touch: bool) -> StackConfig {
+    cfg.info.main.touch = touch;
+    cfg
+}
+
 fn remembered(told: &mut HashMap<String, String>, key: String, found: Option<String>) -> String {
     match found {
         Some(address) => {
@@ -652,23 +681,29 @@ impl ConfigSource {
             },
             access_point: None,
         };
-        let (cfg, cluster) = {
+        let (cfg, cluster, touch) = {
             let s = state.borrow();
-            (s.config.clone(), s.cluster.theme.clone())
+            (s.config.clone(), s.cluster.theme.clone(), main_touch(&s))
         };
         let screen = host::screen_panel();
-        let first = with_images(
-            stack_config(&cfg, &panels.borrow(), screen, false, &addresses, &cluster),
-            &images,
+        let first = with_touch(
+            with_images(
+                stack_config(&cfg, &panels.borrow(), screen, false, &addresses, &cluster),
+                &images,
+            ),
+            touch,
         );
         let (tx, rx) = watch::channel(first);
-        let (aa, aa_rx) = watch::channel(aa_config(
-            &cfg,
-            &panels.borrow(),
-            screen.as_ref(),
-            Codecs::default(),
-            &addresses,
-        ));
+        let (aa, aa_rx) = watch::channel(AaConfig {
+            touchscreen: touch,
+            ..aa_config(
+                &cfg,
+                &panels.borrow(),
+                screen.as_ref(),
+                Codecs::default(),
+                &addresses,
+            )
+        });
         let source = Arc::new(Self {
             tx,
             aa,
@@ -685,12 +720,13 @@ impl ConfigSource {
     }
 
     pub fn refresh(&self) {
-        let (cfg, cluster, dongle_up) = {
+        let (cfg, cluster, dongle_up, touch) = {
             let s = self.state.borrow();
             (
                 s.config.clone(),
                 s.cluster.theme.clone(),
                 s.system.dongle.is_some(),
+                main_touch(&s),
             )
         };
         let reachable = |name: &str| dongle_up || name != livi_link_host::link::CHOICE;
@@ -737,16 +773,19 @@ impl ConfigSource {
             known.clone()
         };
         let codecs = *self.codecs.lock().unwrap_or_else(|e| e.into_inner());
-        let next = with_images(
-            stack_config(
-                &cfg,
-                &self.panels.borrow(),
-                self.screen,
-                codecs.hevc,
-                &addresses,
-                &cluster,
+        let next = with_touch(
+            with_images(
+                stack_config(
+                    &cfg,
+                    &self.panels.borrow(),
+                    self.screen,
+                    codecs.hevc,
+                    &addresses,
+                    &cluster,
+                ),
+                &self.images,
             ),
-            &self.images,
+            touch,
         );
         self.tx.send_if_modified(|cur| {
             let changed = *cur != next;
@@ -754,13 +793,16 @@ impl ConfigSource {
             changed
         });
         livi_aa_stack::log::set_debug(cfg.debug_logging);
-        let aa = aa_config(
-            &cfg,
-            &self.panels.borrow(),
-            self.screen.as_ref(),
-            codecs,
-            &addresses,
-        );
+        let aa = AaConfig {
+            touchscreen: touch,
+            ..aa_config(
+                &cfg,
+                &self.panels.borrow(),
+                self.screen.as_ref(),
+                codecs,
+                &addresses,
+            )
+        };
         self.aa.send_if_modified(|cur| {
             let changed = *cur != aa;
             *cur = aa;
@@ -793,6 +835,7 @@ impl ConfigSource {
                         sys.wifi_interfaces.clone(),
                         sys.bt_adapters.clone(),
                         s.cluster.theme.id.clone(),
+                        main_touch(&s),
                     )
                 };
                 if panels_moved || seen.as_ref() != Some(&now) {
@@ -821,6 +864,32 @@ mod tests {
     use livi_core_proto::theme::livi_theme;
 
     use super::*;
+
+    #[test]
+    fn touch_follows_the_main_display() {
+        use livi_core_proto::state::Display;
+        let display = |connector: &str, screen: Option<Screen>, touch: &[&str]| Display {
+            connector: connector.into(),
+            screen,
+            touch: touch.iter().map(|t| t.to_string()).collect(),
+            ..Default::default()
+        };
+        let mut state = State::default();
+        assert!(!main_touch(&state), "no displays, no touch");
+        state.system.displays = vec![display("HDMI-A-1", Some(Screen::Main), &[])];
+        assert!(!main_touch(&state));
+        state.system.displays = vec![
+            display("HDMI-A-1", Some(Screen::Cluster), &["ILITEK ILITEK-TP"]),
+            display("HDMI-A-2", Some(Screen::Main), &[]),
+        ];
+        assert!(!main_touch(&state), "a touch cluster is not a touch main");
+        state.system.displays[1].touch = vec!["ILITEK ILITEK-TP".into()];
+        assert!(main_touch(&state));
+        state.config.display_connector.main = "HDMI-A-1".into();
+        assert!(main_touch(&state), "the chosen connector wins");
+        state.config.display_connector.main = "DSI-1".into();
+        assert!(!main_touch(&state), "a chosen connector that is gone");
+    }
 
     fn panels() -> HashMap<String, Panel> {
         HashMap::from([(

@@ -194,6 +194,49 @@ fn the_phone_reads_follows_and_writes() {
 }
 
 #[test]
+fn tires_come_only_with_tire_pressures() {
+    let iids =
+        |state: &VehicleState| -> Vec<i64> { state.accessories.iter().map(|a| a.iid).collect() };
+    assert!(iids(&VehicleState::new(false, "9.5.0", "").with_tires(true)).contains(&TIRES));
+    let mut without = VehicleState::new(false, "9.5.0", "").with_tires(false);
+    assert!(!iids(&without).contains(&TIRES));
+    assert!(!without.values.contains_key(&tire_pressure_iid(0)));
+    let gauges: Gauges = serde_json::from_value(serde_json::json!({
+        "tirePressure": { "frontLeftKpa": 240 }
+    }))
+    .unwrap();
+    without.set_gauges(&gauges);
+    assert!(!without.values.contains_key(&tire_pressure_iid(0)));
+}
+
+#[test]
+fn fuel_and_range_come_only_with_fuel_data() {
+    let iids =
+        |state: &VehicleState| -> Vec<i64> { state.accessories.iter().map(|a| a.iid).collect() };
+    let services = |state: &VehicleState| -> Vec<i64> {
+        state
+            .accessories
+            .iter()
+            .flat_map(|a| &a.services)
+            .map(|s| s.iid)
+            .collect()
+    };
+    let with = VehicleState::new(false, "9.5.0", "").with_fuel(true);
+    assert!(iids(&with).contains(&FUEL_ACCESSORY));
+    assert!(services(&with).contains(&TRIP_RANGE_SERVICE));
+    let mut without = VehicleState::new(false, "9.5.0", "").with_fuel(false);
+    assert!(!iids(&without).contains(&FUEL_ACCESSORY));
+    assert!(!services(&without).contains(&TRIP_RANGE_SERVICE));
+    assert!(services(&without).contains(&1797), "the odometer stays");
+    assert!(!without.values.contains_key(&FUEL_LEVEL));
+    let gauges: Gauges =
+        serde_json::from_value(serde_json::json!({ "fuelPct": 40, "rangeKm": 300 })).unwrap();
+    without.set_gauges(&gauges);
+    assert!(!without.values.contains_key(&FUEL_LEVEL));
+    assert!(!without.values.contains_key(&REMAINING_RANGE.km));
+}
+
+#[test]
 fn climate_and_seats_come_only_with_the_climate_controls() {
     let iids =
         |state: &VehicleState| -> Vec<i64> { state.accessories.iter().map(|a| a.iid).collect() };

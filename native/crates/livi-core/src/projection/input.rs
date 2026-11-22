@@ -208,22 +208,8 @@ impl Projection {
             (Key::RejectPhone, _) => Command::RejectPhone,
             (Key::VoiceAssistant, _) => Command::VoiceAssistant,
             (Key::VoiceAssistantRelease, _) => Command::VoiceAssistantRelease,
-            (Key::Phone(b), _) if b == t::STAR => Command::PhoneKeyStar,
-            (Key::Phone(b), _) if b == t::POUND => Command::PhoneKeyHash,
             (Key::Phone(b), _) if b == t::HOOK_SWITCH => Command::PhoneKeyHookSwitch,
-            (Key::Phone(b), _) => match b.wrapping_sub(t::KEY0) {
-                0 => Command::PhoneKey0,
-                1 => Command::PhoneKey1,
-                2 => Command::PhoneKey2,
-                3 => Command::PhoneKey3,
-                4 => Command::PhoneKey4,
-                5 => Command::PhoneKey5,
-                6 => Command::PhoneKey6,
-                7 => Command::PhoneKey7,
-                8 => Command::PhoneKey8,
-                9 => Command::PhoneKey9,
-                _ => return,
-            },
+            (Key::Phone(_), _) => return,
             (Key::CycleSession | Key::ClusterLayout | Key::ClusterContent, _) => return,
         };
         self.aa.session(id, SessionCmd::Command(command));

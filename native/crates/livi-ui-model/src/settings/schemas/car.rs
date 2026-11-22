@@ -154,11 +154,8 @@ pub fn schema() -> Node {
             .icon("edgeBottom")
             .display_value()
             .page(Label::new("settings.carPlayDockPosition", "CarPlay Dock")),
-            Node::checkbox(
-                Label::new("settings.carPlayVehicleClimate", "CarPlay Climate Controls"),
-                "carPlayVehicleClimate",
-            )
-            .icon("carPlayVehicleClimate"),
+            // No "CarPlay Climate Controls": the car has no climate control on its bus, and
+            // the CarPlay config never offers it (livi-core carplay.rs).
             Node::custom(
                 Label::new("settings.carData", "Car Data"),
                 "carType",

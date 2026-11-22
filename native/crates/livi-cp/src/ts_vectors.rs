@@ -52,6 +52,10 @@ fn info_config() -> InfoConfig {
             height_pixels: 720,
             width_physical_mm: Some(200),
             fps: Some(60),
+            // The vectors come from a touch head unit, and upstream calls every display touch
+            // with the knob as the primary input.
+            touch: true,
+            primary_input_device: Some(3),
             view_area: Some(Insets::default()),
             safe_area: Some(Insets {
                 top: 0,
@@ -67,6 +71,8 @@ fn info_config() -> InfoConfig {
             height_pixels: 480,
             fps: Some(30),
             width_physical_mm: Some(150),
+            touch: true,
+            primary_input_device: Some(3),
             initial_url: Some("maps:/car/instrumentcluster".into()),
             ..Default::default()
         }),
@@ -151,16 +157,45 @@ fn bplist_matches() {
     assert_eq!(bplist::decode(&bytes), Ok(value));
 }
 
+/// Upstream's telephony descriptor, with a keypad, flash and mute. The fork declares hook and
+/// drop only (hid.rs); the vectors keep upstream's.
+const UPSTREAM_TELEPHONY: &[u8] = &[
+    0x05, 0x0b, 0x09, 0x07, 0xa1, 0x01, 0x15, 0x00, 0x25, 0x11, 0x05, 0x0b, 0x09, 0x00, 0x09, 0x20,
+    0x09, 0x21, 0x09, 0x26, 0x09, 0x2f, 0x09, 0xb0, 0x09, 0xb1, 0x09, 0xb2, 0x09, 0xb3, 0x09, 0xb4,
+    0x09, 0xb5, 0x09, 0xb6, 0x09, 0xb7, 0x09, 0xb8, 0x09, 0xb9, 0x09, 0xba, 0x09, 0xbb, 0x05, 0x07,
+    0x09, 0x2a, 0x75, 0x08, 0x95, 0x01, 0x81, 0x00, 0xc0,
+];
+
+fn upstream_info(cfg: &InfoConfig) -> Value {
+    let mut info = build(cfg);
+    if let Value::Dict(entries) = &mut info
+        && let Some((_, Value::Array(devices))) =
+            entries.iter_mut().find(|(k, _)| k == "hidDevices")
+    {
+        for device in devices {
+            let telephony = device.get("name").and_then(Value::as_str) == Some("LIVI Telephony");
+            if let (true, Value::Dict(fields)) = (telephony, device) {
+                for (k, v) in fields.iter_mut() {
+                    if k == "hidDescriptor" {
+                        *v = Value::Data(UPSTREAM_TELEPHONY.to_vec());
+                    }
+                }
+            }
+        }
+    }
+    info
+}
+
 #[test]
 fn info_matches() {
-    check("info", &bplist::encode(&build(&info_config())));
+    check("info", &bplist::encode(&upstream_info(&info_config())));
     let mut cfg = info_config();
     cfg.hevc = false;
     cfg.cluster = None;
     cfg.icons.clear();
     cfg.disable_audio_output = true;
     cfg.entertainment_sample_rate = 48000;
-    check("infoNoAudio", &bplist::encode(&build(&cfg)));
+    check("infoNoAudio", &bplist::encode(&upstream_info(&cfg)));
 }
 
 #[test]

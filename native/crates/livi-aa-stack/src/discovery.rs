@@ -69,84 +69,66 @@ pub struct Discovery {
     pub cluster_codecs: Vec<VideoCodec>,
 }
 
-const LOCATION_CHARACTERIZATION: u32 = 256 | 4 | 2 | 8 | 64;
+/// `RAW_GNSS_ONLY`: a plain receiver, no fusion with gyro, accelerometer, compass or wheel speed.
+const LOCATION_CHARACTERIZATION: u32 = 0x100;
 
-const KEYCODES: [Keycode; 50] = [
+/// The keys the car's controls can send: the RNS-E knob, arrows, Return and Setup, the
+/// NAV/TEL/MEDIA keys, the wheel's thumbwheel, MODE and PTT (`livi-carpi` input, LIVI's key
+/// bindings). No number pad, power, menu or volume keys: the RNS-E keeps volume.
+const KEYCODES: [Keycode; 17] = [
     Keycode::Home,
     Keycode::Back,
     Keycode::Call,
     Keycode::Endcall,
-    Keycode::Keycode0,
-    Keycode::Keycode1,
-    Keycode::Keycode2,
-    Keycode::Keycode3,
-    Keycode::Keycode4,
-    Keycode::Keycode5,
-    Keycode::Keycode6,
-    Keycode::Keycode7,
-    Keycode::Keycode8,
-    Keycode::Keycode9,
-    Keycode::Star,
-    Keycode::Pound,
     Keycode::DpadUp,
     Keycode::DpadDown,
     Keycode::DpadLeft,
     Keycode::DpadRight,
     Keycode::DpadCenter,
-    Keycode::VolumeUp,
-    Keycode::VolumeDown,
-    Keycode::Power,
-    Keycode::Enter,
-    Keycode::Headsethook,
-    Keycode::Menu,
-    Keycode::Search,
     Keycode::MediaPlayPause,
-    Keycode::MediaStop,
     Keycode::MediaNext,
     Keycode::MediaPrevious,
-    Keycode::MediaRewind,
-    Keycode::MediaFastForward,
-    Keycode::Mute,
-    Keycode::Escape,
-    Keycode::MediaPlay,
-    Keycode::MediaPause,
-    Keycode::VolumeMute,
-    Keycode::Assist,
-    Keycode::VoiceAssist,
-    Keycode::NavigatePrevious,
-    Keycode::NavigateNext,
-    Keycode::NavigateIn,
-    Keycode::NavigateOut,
+    Keycode::Search,
     Keycode::RotaryController,
     Keycode::Media,
     Keycode::Navigation,
-    Keycode::Radio,
     Keycode::Tel,
 ];
 
-const SENSORS: [SensorType; 21] = [
-    SensorType::DrivingStatusData,
-    SensorType::Location,
+/// What carpid reads off the bus and `livi-carpi` passes on. No fuel, tire pressure, climate,
+/// accelerometer, gyroscope or compass: the car has none of them on CAN. No driving status
+/// either: nothing reports it.
+const CAR_SENSORS: [SensorType; 9] = [
     SensorType::NightMode,
     SensorType::Speed,
+    SensorType::Rpm,
     SensorType::Gear,
     SensorType::ParkingBrake,
-    SensorType::Fuel,
     SensorType::Odometer,
     SensorType::EnvironmentData,
     SensorType::DoorData,
     SensorType::LightData,
-    SensorType::TirePressureData,
-    SensorType::HvacData,
-    SensorType::AccelerometerData,
-    SensorType::GyroscopeData,
-    SensorType::Compass,
-    SensorType::GpsSatelliteData,
-    SensorType::Rpm,
+];
+
+const EV_SENSORS: [SensorType; 3] = [
     SensorType::VehicleEnergyModelData,
     SensorType::RawVehicleEnergyModel,
     SensorType::RawEvTripSettings,
 ];
+
+fn sensors(cfg: &AaConfig) -> Vec<SensorType> {
+    let mut out = CAR_SENSORS.to_vec();
+    if cfg.gps {
+        out.push(SensorType::Location);
+    }
+    if cfg
+        .fuel_types
+        .contains(&(livi_core_proto::config::CarType::Electric as i32))
+    {
+        out.extend(EV_SENSORS);
+    }
+    out
+}
 
 fn resolution(width: u32) -> VideoCodecResolution {
     use VideoCodecResolution as R;
@@ -356,13 +338,13 @@ pub fn build(cfg: &AaConfig) -> Discovery {
     channels.push(Service {
         id: i32::from(ch::SENSOR),
         sensor_source: Some(SensorSourceService {
-            supported_sensors: SENSORS
-                .iter()
+            supported_sensors: sensors(cfg)
+                .into_iter()
                 .map(|t| SupportedSensor {
-                    sensor_type: *t as i32,
+                    sensor_type: t as i32,
                 })
                 .collect(),
-            location_characterization: Some(LOCATION_CHARACTERIZATION),
+            location_characterization: cfg.gps.then_some(LOCATION_CHARACTERIZATION),
             fuel_types,
             ev_connector_types: cfg.ev_connector_types.clone(),
         }),
@@ -374,11 +356,15 @@ pub fn build(cfg: &AaConfig) -> Discovery {
         id: i32::from(ch::INPUT),
         input_source: Some(InputSourceService {
             supported_keycodes: KEYCODES.iter().map(|k| *k as i32).collect(),
-            touchscreens: vec![Touchscreen {
-                width: touch_w as i32,
-                height: touch_h as i32,
-                ..Default::default()
-            }],
+            touchscreens: if cfg.touchscreen {
+                vec![Touchscreen {
+                    width: touch_w as i32,
+                    height: touch_h as i32,
+                    ..Default::default()
+                }]
+            } else {
+                Vec::new()
+            },
             ..Default::default()
         }),
         ..Default::default()
@@ -486,6 +472,7 @@ pub fn build(cfg: &AaConfig) -> Discovery {
 
 #[cfg(test)]
 mod tests {
+    use livi_core_proto::config::CarType;
     use prost::Message;
 
     use super::*;
@@ -508,8 +495,69 @@ mod tests {
         assert_eq!(sdr.display_name.as_deref(), Some("LIVI"));
         let bt = sdr.services[7].bluetooth.as_ref().unwrap();
         assert_eq!(bt.car_address, "00:00:00:00:00:00");
+        let input = sdr.services[6].input_source.as_ref().unwrap();
+        assert!(
+            input.touchscreens.is_empty(),
+            "no touch device, no touchscreen"
+        );
+        assert!(
+            input
+                .supported_keycodes
+                .contains(&(Keycode::RotaryController as i32))
+        );
+        assert!(
+            !input
+                .supported_keycodes
+                .contains(&(Keycode::Keycode0 as i32))
+        );
+        assert!(!input.supported_keycodes.contains(&(Keycode::Power as i32)));
+        let sensors = sdr.services[5].sensor_source.as_ref().unwrap();
+        let has = |t: SensorType| {
+            sensors
+                .supported_sensors
+                .iter()
+                .any(|s| s.sensor_type == t as i32)
+        };
+        for missing in [
+            SensorType::Location,
+            SensorType::HvacData,
+            SensorType::TirePressureData,
+            SensorType::AccelerometerData,
+            SensorType::GyroscopeData,
+            SensorType::Compass,
+            SensorType::GpsSatelliteData,
+            SensorType::VehicleEnergyModelData,
+            SensorType::Fuel,
+            SensorType::DrivingStatusData,
+        ] {
+            assert!(!has(missing), "{missing:?} has no source");
+        }
+        for present in [SensorType::Speed, SensorType::DoorData] {
+            assert!(has(present), "{present:?}");
+        }
+        assert_eq!(sensors.location_characterization, None);
+    }
+
+    #[test]
+    fn touch_and_location_follow_the_hardware() {
+        let sdr = decoded(&AaConfig {
+            touchscreen: true,
+            gps: true,
+            fuel_types: vec![CarType::Electric as i32],
+            ..Default::default()
+        });
         let touch = &sdr.services[6].input_source.as_ref().unwrap().touchscreens[0];
         assert_eq!((touch.width, touch.height), (1280, 720));
+        let sensors = sdr.services[5].sensor_source.as_ref().unwrap();
+        let has = |t: SensorType| {
+            sensors
+                .supported_sensors
+                .iter()
+                .any(|s| s.sensor_type == t as i32)
+        };
+        assert!(has(SensorType::Location));
+        assert!(has(SensorType::VehicleEnergyModelData));
+        assert_eq!(sensors.location_characterization, Some(0x100));
     }
 
     #[test]

@@ -141,6 +141,8 @@ fn ts_config(v: &Json) -> AaConfig {
         disable_audio_output: b("disableAudioOutput"),
         mic_device: String::new(),
         telephony_audio: false,
+        touchscreen: true,
+        gps: true,
     }
 }
 
@@ -187,12 +189,43 @@ fn wire_helpers_match() {
     }
 }
 
+/// The fork declares only the keys and sensors the car has (discovery.rs); the vectors keep
+/// upstream's lists. Everything else in a service discovery response must still match.
+fn comparable_sdr(buf: &[u8]) -> livi_aa_proto::ServiceDiscoveryResponse {
+    use prost::Message;
+    let mut sdr = livi_aa_proto::ServiceDiscoveryResponse::decode(buf).unwrap();
+    for s in &mut sdr.services {
+        if let Some(input) = s.input_source.as_mut() {
+            input.supported_keycodes.clear();
+        }
+        if let Some(sensors) = s.sensor_source.as_mut() {
+            sensors.supported_sensors.clear();
+            sensors.location_characterization = None;
+        }
+    }
+    sdr
+}
+
+/// A sent service discovery response, as `comparable_sdr`; any other record as it is.
+fn comparable_record(rec: &Json) -> Json {
+    let sdr = rec
+        .get("send")
+        .and_then(Json::as_array)
+        .filter(|f| f.len() == 4 && f[0] == 0 && f[2] == 6)
+        .and_then(|f| f[3].as_str());
+    match sdr {
+        Some(payload) => json!({ "sdr": format!("{:?}", comparable_sdr(&unhex(payload))) }),
+        None => rec.clone(),
+    }
+}
+
 #[test]
 fn service_discovery_matches() {
     for case in vectors()["sdr"].as_array().unwrap() {
         let d = discovery::build(&ts_config(&case["config"]));
         let name = &case["name"];
-        assert_eq!(hex(&d.buf), case["hex"], "sdr {name}");
+        let want = unhex(case["hex"].as_str().unwrap());
+        assert_eq!(comparable_sdr(&d.buf), comparable_sdr(&want), "sdr {name}");
         let names = |c: &[discovery::VideoCodec]| {
             Json::from(c.iter().map(|c| c.name()).collect::<Vec<_>>())
         };
@@ -760,7 +793,12 @@ async fn scripted_sessions_match() {
         }
         let expected = case["records"].as_array().unwrap();
         for (i, (got, want)) in r.records.iter().zip(expected).enumerate() {
-            assert_eq!(got, want, "{} record {i}", case["name"]);
+            assert_eq!(
+                comparable_record(got),
+                comparable_record(want),
+                "{} record {i}",
+                case["name"]
+            );
         }
         assert_eq!(r.records.len(), expected.len(), "{} records", case["name"]);
     }

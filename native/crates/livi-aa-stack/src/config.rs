@@ -46,6 +46,10 @@ pub struct AaConfig {
     pub disable_audio_output: bool,
     pub mic_device: String,
     pub telephony_audio: bool,
+    /// A touch device drives the main display: the phone gets a touchscreen only then.
+    pub touchscreen: bool,
+    /// A location source feeds `gps`: the phone gets the location sensor only then.
+    pub gps: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -290,6 +294,8 @@ pub fn from_livi(
         disable_audio_output: cfg.disable_audio_output,
         mic_device: cfg.audio_input_device.clone().unwrap_or_default(),
         telephony_audio: std::env::var("LIVI_AA_TELEPHONY").is_ok_and(|v| v == "1"),
+        touchscreen: false,
+        gps: cfg.gps_enabled,
     }
 }
 

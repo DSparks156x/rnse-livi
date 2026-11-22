@@ -95,11 +95,14 @@ pub(super) fn distance(iid: i64, kind: i64, d: Distance) -> Service {
     }
 }
 
+pub(super) const FUEL_ACCESSORY: i64 = 1536;
+pub(super) const TRIP_RANGE_SERVICE: i64 = 1793;
+
 pub(super) fn fuel() -> Accessory {
     use Format::*;
     Accessory {
         name: "fuel",
-        iid: 1536,
+        iid: FUEL_ACCESSORY,
         kind: 0x0900_0006,
         services: vec![
             Service {
@@ -163,7 +166,7 @@ pub(super) fn trip_computer() -> Accessory {
         iid: 1792,
         kind: 0x0400_0001,
         services: vec![
-            distance(1793, 0x1A00_000B, REMAINING_RANGE),
+            distance(TRIP_RANGE_SERVICE, 0x1A00_000B, REMAINING_RANGE),
             distance(1797, 0x1A00_000A, ODOMETER),
         ],
     }
