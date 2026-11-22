@@ -113,6 +113,8 @@ pub fn action_label(a: &str) -> String {
         "knob_left" => "Knob left".into(),
         "knob_right" => "Knob right".into(),
         "cycle_session" => "Next phone".into(),
+        "page_prev" => "Previous cluster page".into(),
+        "page_next" => "Next cluster page".into(),
         other => {
             if let Some(code) = other.strip_prefix("code:") {
                 format!("Key code {code}")

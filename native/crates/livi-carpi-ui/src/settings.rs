@@ -34,7 +34,7 @@ pub fn actions(table: &str) -> &'static [&'static str] {
         "call_accept",
         "call_end",
     ];
-    const DIS: &[&str] = &["up", "down", "select", "back"];
+    const DIS: &[&str] = &["up", "down", "select", "back", "page_prev", "page_next"];
     const LIVI: &[&str] = &[
         "up",
         "down",
