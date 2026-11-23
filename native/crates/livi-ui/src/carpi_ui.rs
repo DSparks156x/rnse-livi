@@ -219,7 +219,9 @@ pub fn wire(ui: &AppWindow) {
     let weak = ui.as_weak();
     st.on_panel_flip(move |d| {
         if let Some(ui) = weak.upgrade() {
-            act(&ui, |o, id, _view, from| o.pages.flip(id, d, from, &o.client));
+            act(&ui, |o, id, _view, from| {
+                o.pages.flip(id, d, from, &o.client)
+            });
         }
     });
     let weak = ui.as_weak();
@@ -292,6 +294,13 @@ pub fn targets(ui: &AppWindow) -> usize {
         return with(|o| o.tab.as_ref().map_or(0, |(v, _)| v.targets())).unwrap_or(0);
     }
     with(|o| fresh(ui, o).map_or(0, View::targets)).unwrap_or(0)
+}
+
+/// Where the knob starts when the shown page is entered: its view's start, past the tab bar.
+pub fn start(ui: &AppWindow) -> Option<i32> {
+    with(|o| shown_view(ui, o).map(|v| v.start))
+        .flatten()
+        .filter(|&at| at >= 0)
 }
 
 /// Per focus index of the shown page, its line: pills share the header's, tiles their grid
@@ -419,7 +428,12 @@ pub fn key(ui: &AppWindow, config: &serde_json::Value, code: &str) -> bool {
     // A Data panel being viewed: the knob (and the D-pad) flip panels, Up goes to the tabs.
     if !HOLD.get() {
         let flip = with(|o| {
-            fresh(ui, o).map(|v| (v.flip, v.pills.iter().find(|p| p.active).map(|p| p.focus_at)))
+            fresh(ui, o).map(|v| {
+                (
+                    v.flip,
+                    v.pills.iter().find(|p| p.active).map(|p| p.focus_at),
+                )
+            })
         })
         .flatten();
         let focus = ui.global::<Focus>();

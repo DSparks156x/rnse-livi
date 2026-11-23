@@ -65,7 +65,8 @@ export component AppWindow inherits Window {
     callback seek(float);
     callback spectrum-changed(bool);
 
-    property <bool> nav-hidden: root.page == Page.projection && root.phone == PhoneState.streaming;
+    // carpi fork: Return on the projection brings the sidebar up with the knob on it.
+    property <bool> nav-hidden: root.page == Page.projection && root.phone == PhoneState.streaming && Focus.zone != FocusZone.nav;
     property <bool> nav-asleep;
 
     public function wake-nav() {

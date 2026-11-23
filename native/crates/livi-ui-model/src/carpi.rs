@@ -602,11 +602,7 @@ mod tests {
         );
         assert_eq!(
             tabs(vec![Tab::Projection, Tab::Settings]),
-            vec![
-                Tab::Projection,
-                Tab::Carpi(PageId::Data),
-                Tab::Settings,
-            ]
+            vec![Tab::Projection, Tab::Carpi(PageId::Data), Tab::Settings,]
         );
     }
 

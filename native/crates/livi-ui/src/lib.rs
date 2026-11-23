@@ -187,7 +187,11 @@ fn apply(ui: &AppWindow, update: Update) {
             (Front::Projection, Page::Projection) => {}
             (Front::Projection, _) => choose(ui, Page::Projection),
             (Front::Livi, Page::Projection) if ui.get_phone() == PhoneState::Connected => {}
-            (_, Page::Projection) => choose(ui, Page::Media),
+            (_, Page::Projection) => {
+                choose(ui, Page::Media);
+                // carpi fork: leaving AA/CarPlay puts the knob on the sidebar, not in Media.
+                keys_ui::to_nav(ui);
+            }
             _ => {}
         },
         Update::Phone(phone) => {
@@ -291,7 +295,10 @@ fn reported(ui: &AppWindow, client: &Client, page: Page) {
         Page::Telemetry => (Front::Livi, "/telemetry"),
         Page::Media => (Front::Livi, media_ui::path(ui)),
         Page::Camera => (Front::Camera, "/camera"),
-        Page::Settings => (Front::Livi, carpi_ui::settings_path().unwrap_or("/settings")),
+        Page::Settings => (
+            Front::Livi,
+            carpi_ui::settings_path().unwrap_or("/settings"),
+        ),
         Page::CarpiData => carpi_ui::reported(ui, page),
     };
     client.show(Screen::Main, front);

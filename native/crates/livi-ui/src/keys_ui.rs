@@ -187,7 +187,9 @@ fn lines(ui: &AppWindow, list: &[Target]) -> Vec<u32> {
             Target::CalSlider(i) => 1_000 + i.max(0) as u32,
             Target::Row(i, _) | Target::Tool(i, _) => 100_000 + i as u32,
             Target::Pick(i) => 200_000 + i as u32,
-            Target::Carpi(i) => carpi.get(i).map_or(1_000_000 + at as u32, |l| 1_000_000 + l),
+            Target::Carpi(i) => carpi
+                .get(i)
+                .map_or(1_000_000 + at as u32, |l| 1_000_000 + l),
         })
         .collect()
 }
@@ -214,12 +216,19 @@ fn enter_main(ui: &AppWindow) {
         f.set_zone(FocusZone::None);
         return;
     }
+    // carpi fork: our pages start in their body, not on the tab bar, so one push from the
+    // sidebar lands where the knob is useful.
+    let at = crate::carpi_ui::ours(ui.get_page())
+        .then(|| crate::carpi_ui::start(ui))
+        .flatten()
+        .filter(|&at| (at as usize) < list.len())
+        .unwrap_or_else(|| first_index(&list));
     f.set_editing(false);
-    f.set_main_index(first_index(&list));
+    f.set_main_index(at);
     f.set_zone(FocusZone::Main);
 }
 
-fn to_nav(ui: &AppWindow) {
+pub(crate) fn to_nav(ui: &AppWindow) {
     let f = ui.global::<Focus>();
     let tabs = ui.get_tabs();
     let at = (0..tabs.row_count())

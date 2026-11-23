@@ -55,7 +55,9 @@ pub enum Outcome {
     ToCore(String),
     CycleSession,
     NavStep(i32),
-    NavOpen { enter_main: bool },
+    NavOpen {
+        enter_main: bool,
+    },
     EnterMain,
     ToNav,
     MainStep(i32),
@@ -123,7 +125,11 @@ pub fn decide(code: &str, ctx: Context, config: &Value) -> Outcome {
     if ctx.telemetry && !in_nav && !form {
         if left {
             return if ctx.first && !ctx.repeat {
-                if turned { Outcome::Ignore } else { Outcome::ToNav }
+                if turned {
+                    Outcome::Ignore
+                } else {
+                    Outcome::ToNav
+                }
             } else {
                 Outcome::Pager(-1)
             };
@@ -184,11 +190,12 @@ pub fn decide(code: &str, ctx: Context, config: &Value) -> Outcome {
         // held) goes into the page like a D-pad would; the knob and up/down
         // walk the column. Without distinct knob bindings, ArrowRight is the
         // knob too and keeps walking.
-        let dpad_right = is("right", "ArrowRight") && !knob("knobRight") && !b("knobRight").is_empty();
+        let dpad_right =
+            is("right", "ArrowRight") && !knob("knobRight") && !b("knobRight").is_empty();
         if dpad_right {
-            return Outcome::NavOpen {
-                enter_main: !ctx.projection,
-            };
+            // carpi fork: into the page opened, also from the projection's sidebar (open_tab
+            // keeps the projection itself for the phone's keys).
+            return Outcome::NavOpen { enter_main: true };
         }
         if left || up {
             return Outcome::NavStep(walk(-1));
@@ -197,9 +204,9 @@ pub fn decide(code: &str, ctx: Context, config: &Value) -> Outcome {
             return Outcome::NavStep(walk(1));
         }
         if select_down {
-            return Outcome::NavOpen {
-                enter_main: !ctx.projection,
-            };
+            // carpi fork: into the page opened, also from the projection's sidebar (open_tab
+            // keeps the projection itself for the phone's keys).
+            return Outcome::NavOpen { enter_main: true };
         }
         if enter {
             return Outcome::NavOpen { enter_main: false };
@@ -379,6 +386,17 @@ mod tests {
     }
 
     #[test]
+    fn push_in_the_projections_sidebar_enters_the_page() {
+        let mut c = ctx(Zone::Nav);
+        c.projection = true;
+        c.streaming = true;
+        assert_eq!(
+            decide("Enter", c, &config()),
+            Outcome::NavOpen { enter_main: true }
+        );
+    }
+
+    #[test]
     fn dpad_right_leaves_the_sidebar_when_the_knob_is_its_own() {
         let mut config = config();
         config["bindings"]["knobLeft"] = json!("PageUp");
@@ -399,10 +417,7 @@ mod tests {
         config["bindings"]["knobLeft"] = json!("KeyQ");
         config["bindings"]["knobRight"] = json!("KeyE");
         config["bindings"]["knobDown"] = json!("KeyX");
-        assert_eq!(
-            decide("KeyQ", ctx(Zone::Nav), &config),
-            Outcome::NavStep(1)
-        );
+        assert_eq!(decide("KeyQ", ctx(Zone::Nav), &config), Outcome::NavStep(1));
         assert_eq!(
             decide("KeyE", ctx(Zone::Main), &config),
             Outcome::MainTurn(1)
