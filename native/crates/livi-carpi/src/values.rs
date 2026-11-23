@@ -29,8 +29,8 @@ pub const PREFIXES: [&str; 17] = [
     "light.dim_display_pct",
 ];
 
-/// Tank of the front wheel drive TT 8J. `LIVI_CARPI_TANK_L` sets another.
-const TANK_L: f64 = 55.0;
+/// Tank of the quattro (Haldex) TT 8J. `LIVI_CARPI_TANK_L` sets another.
+const TANK_L: f64 = 60.0;
 
 const DOORS: [(&str, &str); 6] = [
     ("body.door_fl_open", "frontLeft"),
